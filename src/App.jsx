@@ -33,16 +33,15 @@ import {
   ExternalLink,
   Check,
   AlertTriangle,
-  Clock,
   ShieldAlert,
-  Search
+  Crown
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
 const FREE_USAGE_LIMIT = 5;
-const PRO_DAILY_LIMIT = 200;
+const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
-const ADMIN_SECRET_KEY = "admin123"; // Change this to your desired admin secret
+const ADMIN_SECRET_KEY = "admin123";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -59,7 +58,7 @@ export default function BizNavigatorApp() {
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const [authMode, setAuthMode] = useState("login"); // 'login' or 'signup'
+  const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'admin'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authFullName, setAuthFullName] = useState("");
@@ -73,13 +72,12 @@ export default function BizNavigatorApp() {
     () => localStorage.getItem(`${STORAGE_PREFIX}is_pro`) === "true"
   );
   const [verificationStatus, setVerificationStatus] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}verify_status`) || "none" // 'none', 'pending', 'verified'
+    () => localStorage.getItem(`${STORAGE_PREFIX}verify_status`) || "none"
   );
   const [submittedPaymentId, setSubmittedPaymentId] = useState(
     () => localStorage.getItem(`${STORAGE_PREFIX}last_payment_id`) || ""
   );
 
-  // List of all submitted transactions for Admin Audit
   const [submittedTxns, setSubmittedTxns] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}all_txns`);
     return cached ? JSON.parse(cached) : [];
@@ -89,12 +87,10 @@ export default function BizNavigatorApp() {
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminModal, setShowAdminModal] = useState(false);
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
-  
-  // Verification Form Inputs
+
   const [inputPaymentId, setInputPaymentId] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
-  const [adminKeyInput, setAdminKeyInput] = useState("");
 
   // Application States
   const [activeTab, setActiveTab] = useState("idea-finder");
@@ -110,7 +106,6 @@ export default function BizNavigatorApp() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [notificationNudge, setNotificationNudge] = useState(null);
 
-  // Sync core state to localStorage
   useEffect(() => {
     localStorage.setItem(`${STORAGE_PREFIX}is_pro`, isPro);
     localStorage.setItem(`${STORAGE_PREFIX}verify_status`, verificationStatus);
@@ -124,19 +119,36 @@ export default function BizNavigatorApp() {
     }
   }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns]);
 
-  // ==========================================
-  // AUTHENTICATION LOGIC (STRICT LOCK)
-  // ==========================================
+  // Auth Handler
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     setAuthError("");
+
+    if (authMode === "admin") {
+      if (authPassword.trim() === ADMIN_SECRET_KEY) {
+        const adminUser = {
+          name: "Master Admin",
+          emailOrPhone: "admin@biznavigator.in",
+          businessName: "BizNavigator HQ",
+          role: "admin",
+          joinedAt: new Date().toLocaleDateString("en-IN")
+        };
+        setCurrentUser(adminUser);
+        setIsPro(true);
+        setAuthPassword("");
+        alert("Authenticated as Administrator. Master controls unlocked!");
+        return;
+      } else {
+        setAuthError("Invalid Admin Secret Key. Access Denied.");
+        return;
+      }
+    }
 
     if (!authEmailOrPhone.trim() || !authPassword.trim()) {
       setAuthError("Please fill in all mandatory fields.");
       return;
     }
 
-    // Get registered accounts from local storage
     const existingUsers = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}registered_users`) || "[]");
 
     if (authMode === "signup") {
@@ -155,6 +167,7 @@ export default function BizNavigatorApp() {
         emailOrPhone: authEmailOrPhone.trim(),
         businessName: authBusinessName.trim() || "My Indian Enterprise",
         password: authPassword,
+        role: "user",
         joinedAt: new Date().toLocaleDateString("en-IN")
       };
 
@@ -163,25 +176,24 @@ export default function BizNavigatorApp() {
       setCurrentUser(newUser);
       setAuthPassword("");
     } else {
-      // Login mode
       const user = existingUsers.find(
         (u) => u.emailOrPhone === authEmailOrPhone.trim() && u.password === authPassword
       );
 
       if (!user) {
-        // Fallback demo login if no accounts registered yet
         if (existingUsers.length === 0) {
           const defaultUser = {
             name: authEmailOrPhone.split("@")[0] || "Entrepreneur",
             emailOrPhone: authEmailOrPhone.trim(),
             businessName: "Indian SME Enterprise",
+            role: "user",
             joinedAt: new Date().toLocaleDateString("en-IN")
           };
           setCurrentUser(defaultUser);
           setAuthPassword("");
           return;
         }
-        setAuthError("Invalid mobile/email or password. Please verify and try again.");
+        setAuthError("Invalid mobile/email or password.");
         return;
       }
 
@@ -197,9 +209,7 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // ==========================================
-  // STRICT PAYMENT VERIFICATION LOGIC
-  // ==========================================
+  // Payment Verification Handlers
   const handleInitiatePayment = (url, planName) => {
     setSelectedPlanForVerification(planName);
     window.open(url, "_blank", "noopener,noreferrer");
@@ -214,18 +224,15 @@ export default function BizNavigatorApp() {
     setVerificationError("");
 
     const cleanId = inputPaymentId.trim();
-
-    // 1. Strict Razorpay Payment ID regex (starts with 'pay_' followed by alphanumeric characters)
     const razorpayPattern = /^pay_[a-zA-Z0-9]{12,24}$/;
 
     if (!razorpayPattern.test(cleanId)) {
       setVerificationError(
-        "Invalid Razorpay Payment ID format! A legitimate Payment ID starts with 'pay_' (e.g. pay_Px89N2Kd019J). Please check your Razorpay SMS or Email receipt."
+        "Invalid Razorpay Payment ID format! A legitimate ID starts with 'pay_' (e.g. pay_Px89N2Kd019J). Please check your receipt."
       );
       return;
     }
 
-    // 2. Prevent reusing the same Payment ID across multiple transactions
     const idAlreadyUsed = submittedTxns.some((t) => t.paymentId === cleanId && t.status === "approved");
     if (idAlreadyUsed) {
       setVerificationError("This Payment ID has already been redeemed and approved.");
@@ -234,7 +241,6 @@ export default function BizNavigatorApp() {
 
     setIsVerifying(true);
 
-    // Simulate verification check against Razorpay API / Webhook queue
     setTimeout(() => {
       setIsVerifying(false);
 
@@ -244,7 +250,7 @@ export default function BizNavigatorApp() {
         userEmail: currentUser?.emailOrPhone,
         userName: currentUser?.name,
         plan: selectedPlanForVerification,
-        status: "approved", // Automatically approve valid Razorpay payment ID format
+        status: "approved",
         submittedAt: new Date().toLocaleString("en-IN")
       };
 
@@ -254,11 +260,10 @@ export default function BizNavigatorApp() {
       setIsPro(true);
       setVerificationStatus("verified");
       setShowVerificationModal(false);
-      alert(`Payment Verified! Welcome to BizNavigator Pro (${selectedPlanForVerification}). Payment ID: ${cleanId}`);
+      alert(`Payment Verified! Pro unlocked. Payment ID: ${cleanId}`);
     }, 1400);
   };
 
-  // Admin Manual Approval / Revocation
   const handleAdminApprove = (txnId) => {
     const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "approved" } : t));
     setSubmittedTxns(updated);
@@ -275,17 +280,16 @@ export default function BizNavigatorApp() {
     alert("Subscription revoked.");
   };
 
-  // Helper: AI Calling with strict auth and usage checks
+  // Helper: AI Calling
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
-    if (!currentUser) {
-      throw new Error("AUTH_REQUIRED");
-    }
+    if (!currentUser) throw new Error("AUTH_REQUIRED");
 
-    if (!isPro && evaluationsCount >= FREE_USAGE_LIMIT) {
+    const isAdmin = currentUser.role === "admin";
+    if (!isAdmin && !isPro && evaluationsCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
     }
-    if (isPro && proDailyCount >= PRO_DAILY_LIMIT) {
+    if (!isAdmin && isPro && proDailyCount >= PRO_DAILY_LIMIT) {
       alert("Daily Pro limit (50 requests/day) reached. Resets in 24 hours.");
       throw new Error("PRO_LIMIT_REACHED");
     }
@@ -305,9 +309,10 @@ export default function BizNavigatorApp() {
         const data = await res.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
         
-        if (isPro) setProDailyCount((p) => p + 1);
-        else setEvaluationsCount((p) => p + 1);
-        
+        if (!isAdmin) {
+          if (isPro) setProDailyCount((p) => p + 1);
+          else setEvaluationsCount((p) => p + 1);
+        }
         return textResponse;
       } catch (err) {
         console.warn("Gemini API call failed, using fallback.", err);
@@ -315,14 +320,14 @@ export default function BizNavigatorApp() {
     }
 
     await new Promise((r) => setTimeout(r, 1000));
-    if (isPro) setProDailyCount((p) => p + 1);
-    else setEvaluationsCount((p) => p + 1);
+    if (!isAdmin) {
+      if (isPro) setProDailyCount((p) => p + 1);
+      else setEvaluationsCount((p) => p + 1);
+    }
     return fallbackData;
   };
 
-  // ==========================================
-  // TAB 1: AI IDEA MATCHER & DISCOVERY
-  // ==========================================
+  // --- TAB 1: AI IDEA MATCHER ---
   const [finderBudget, setFinderBudget] = useState("100000");
   const [finderLocation, setFinderLocation] = useState("Tier-2 City (e.g., Jaipur, Indore, Surat, Coimbatore)");
   const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media Handling");
@@ -416,9 +421,7 @@ Return ONLY valid JSON matching this schema:
     setActiveTab("evaluator");
   };
 
-  // ==========================================
-  // TAB 2: BUSINESS EVALUATOR & REPORT
-  // ==========================================
+  // --- TAB 2: BUSINESS EVALUATOR ---
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("Tier 2 (e.g., Jaipur, Indore, Surat)");
   const [initialCapital, setInitialCapital] = useState("250000");
@@ -508,9 +511,7 @@ Return ONLY valid JSON:
     }
   };
 
-  // ==========================================
-  // TAB 3: EXECUTION ROADMAP
-  // ==========================================
+  // --- TAB 3: EXECUTION ROADMAP ---
   const [milestones, setMilestones] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}milestones`);
     return cached
@@ -553,9 +554,7 @@ Give 3 practical execution tips:
     setMilestones(updated);
   };
 
-  // ==========================================
-  // TAB 4: CALCULATORS & LEDGER
-  // ==========================================
+  // --- TAB 4: CALCULATORS & LEDGER ---
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -619,9 +618,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     }
   };
 
-  // ==========================================
-  // TAB 5: LIVE AI MARKET RADAR
-  // ==========================================
+  // --- TAB 5: LIVE AI MARKET RADAR ---
   const [marketTrends, setMarketTrends] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}market_trends`);
     return cached
@@ -683,9 +680,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     }
   };
 
-  // ==========================================
-  // FLOATING 24/7 BIZMENTOR CHAT
-  // ==========================================
+  // --- FLOATING BIZMENTOR CHAT ---
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
@@ -718,7 +713,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     }
   };
 
-  // Calculations
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
   const totalOut = ledgerEntries.filter((e) => e.type === "out").reduce((s, i) => s + Number(i.amount), 0);
   const netLedgerBalance = totalIn - totalOut;
@@ -732,17 +726,13 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const completedMilestones = milestones.filter((m) => m.completed).length;
   const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
-  // ==============================================================
-  // STRICT AUTH CHECK: IF NOT LOGGED IN, RENDER AUTH PORTAL ONLY
-  // ==============================================================
+  // STRICT AUTH WALL
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
-        {/* Background glow effects */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="w-full max-w-md relative z-10 space-y-6">
-          {/* Logo & Headline */}
           <div className="text-center space-y-2">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-xl shadow-amber-500/20 mx-auto">
               <TrendingUp className="text-slate-950 font-black h-8 w-8" />
@@ -755,7 +745,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             </p>
           </div>
 
-          {/* Strict Auth Card */}
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
             <div className="flex border-b border-slate-800 pb-3">
               <button
@@ -776,7 +765,18 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
-                Create Account
+                Register
+              </button>
+              <button
+                onClick={() => { setAuthMode("admin"); setAuthError(""); }}
+                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
+                  authMode === "admin"
+                    ? "border-rose-500 text-rose-400"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Crown className="w-3.5 h-3.5" />
+                <span>Admin 🛡️</span>
               </button>
             </div>
 
@@ -788,32 +788,86 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             )}
 
             <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
-              {authMode === "signup" && (
+              {authMode === "admin" ? (
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1">
+                    Master Admin Secret Key
+                  </label>
+                  <div className="relative">
+                    <Lock className="w-4 h-4 text-rose-400 absolute left-3 top-2.5" />
+                    <input
+                      type="password"
+                      required
+                      placeholder="Enter Admin Secret (default: admin123)"
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-rose-500/40 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-rose-400 font-mono text-xs"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-500 block mt-1">
+                    Master control key to access transaction approvals & unlimited evaluations.
+                  </span>
+                </div>
+              ) : (
                 <>
+                  {authMode === "signup" && (
+                    <>
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
+                        <div className="relative">
+                          <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Anand Sharma"
+                            value={authFullName}
+                            onChange={(e) => setAuthFullName(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
+                        <div className="relative">
+                          <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="e.g. Sharma Textiles / Cloud Kitchen"
+                            value={authBusinessName}
+                            onChange={(e) => setAuthBusinessName(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
+                    <label className="block text-slate-300 font-semibold mb-1">Email or 10-Digit Mobile Number</label>
                     <div className="relative">
-                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                       <input
                         type="text"
                         required
-                        placeholder="e.g. Anand Sharma"
-                        value={authFullName}
-                        onChange={(e) => setAuthFullName(e.target.value)}
+                        placeholder="9876543210 or founder@startup.in"
+                        value={authEmailOrPhone}
+                        onChange={(e) => setAuthEmailOrPhone(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
+                    <label className="block text-slate-300 font-semibold mb-1">Password</label>
                     <div className="relative">
-                      <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                       <input
-                        type="text"
-                        placeholder="e.g. Sharma Textiles / Cloud Kitchen"
-                        value={authBusinessName}
-                        onChange={(e) => setAuthBusinessName(e.target.value)}
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
                       />
                     </div>
@@ -821,41 +875,19 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </>
               )}
 
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Email or 10-Digit Mobile Number</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    required
-                    placeholder="9876543210 or founder@startup.in"
-                    value={authEmailOrPhone}
-                    onChange={(e) => setAuthEmailOrPhone(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg shadow-amber-500/20"
+                className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg ${
+                  authMode === "admin"
+                    ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 shadow-rose-500/20"
+                    : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20"
+                }`}
               >
-                {authMode === "login" ? "Sign In & Access Platform" : "Register & Start Free"}
+                {authMode === "admin"
+                  ? "Authenticate as Admin 🛡️"
+                  : authMode === "login"
+                  ? "Sign In & Access Platform"
+                  : "Register & Start Free"}
               </button>
             </form>
 
@@ -869,9 +901,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     );
   }
 
-  // ==============================================================
-  // MAIN AUTHENTICATED APPLICATION SHELL
-  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       {/* Top Header */}
@@ -892,8 +921,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
-            {/* Pro Status Badge */}
-            {isPro ? (
+            {currentUser.role === "admin" ? (
+              <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
+                <Crown className="w-3.5 h-3.5" />
+                <span>ADMINISTRATOR (Unlimited)</span>
+              </div>
+            ) : isPro ? (
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT})</span>
@@ -912,9 +945,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* Authenticated User Pill */}
             <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl">
-              <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">
+              <div className={`w-6 h-6 rounded-full font-black text-xs flex items-center justify-center ${
+                currentUser.role === "admin" ? "bg-rose-500 text-white" : "bg-amber-500 text-slate-950"
+              }`}>
                 {currentUser.name.charAt(0).toUpperCase()}
               </div>
               <div className="text-left hidden md:block">
@@ -930,13 +964,17 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </button>
             </div>
 
-            {/* Admin Audit Button */}
             <button
               onClick={() => setShowAdminModal(true)}
               title="Admin Payment Audit"
-              className="p-1.5 rounded-xl border border-slate-700 text-slate-400 hover:text-amber-400 text-xs"
+              className={`p-1.5 rounded-xl border text-xs flex items-center space-x-1 ${
+                currentUser.role === "admin"
+                  ? "border-rose-500/40 bg-rose-950/40 text-rose-400"
+                  : "border-slate-700 text-slate-400 hover:text-amber-400"
+              }`}
             >
               <ShieldCheck className="w-4 h-4" />
+              {currentUser.role === "admin" && <span className="text-[10px] font-bold hidden sm:inline">Audit</span>}
             </button>
           </div>
         </div>
@@ -972,9 +1010,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* ============================================================== */}
-        {/* TAB 1: AI IDEA MATCHER & DISCOVERY                            */}
-        {/* ============================================================== */}
+        {/* TAB 1: AI IDEA MATCHER */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
@@ -1065,7 +1101,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </form>
               </div>
 
-              {/* Matched Cards */}
               <div className="lg:col-span-7 space-y-4">
                 {matchedIdeas ? (
                   matchedIdeas.map((idea, idx) => (
@@ -1106,9 +1141,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 2: BUSINESS EVALUATOR & REPORT                            */}
-        {/* ============================================================== */}
+        {/* TAB 2: BUSINESS EVALUATOR */}
         {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1168,7 +1201,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </form>
               </div>
 
-              {/* Output Report */}
               <div className="lg:col-span-7">
                 {analysisResult ? (
                   <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
@@ -1230,9 +1262,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 3: EXECUTION ROADMAP                                      */}
-        {/* ============================================================== */}
+        {/* TAB 3: EXECUTION ROADMAP */}
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
@@ -1296,7 +1326,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* Modal: AI Task Doctor Advice */}
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-4 relative shadow-2xl">
@@ -1331,13 +1360,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 4: CALCULATORS & LEDGER                                   */}
-        {/* ============================================================== */}
+        {/* TAB 4: CALCULATORS & LEDGER */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Margin Calculator */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
@@ -1419,7 +1445,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </div>
 
-              {/* Break-Even Calculator */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
@@ -1468,7 +1493,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* Daily Cashflow & Udhaar Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -1568,9 +1592,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 5: LIVE AI MARKET RADAR                                   */}
-        {/* ============================================================== */}
+        {/* TAB 5: LIVE AI MARKET RADAR */}
         {activeTab === "market" && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
@@ -1676,9 +1698,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         )}
       </div>
 
-      {/* ============================================================== */}
-      {/* SUBSCRIPTION MODAL (LINKED DIRECTLY TO RAZORPAY)               */}
-      {/* ============================================================== */}
+      {/* SUBSCRIPTION MODAL */}
       {showPaywallModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
@@ -1702,7 +1722,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* PLAN 1: DAY PASS (₹49) */}
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">Day Pass</span>
@@ -1718,7 +1737,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </button>
               </div>
 
-              {/* PLAN 2: MONTHLY PRO (₹249) */}
               <div className="bg-slate-950 border-2 border-amber-500/80 p-4 rounded-2xl text-center space-y-3 relative flex flex-col justify-between shadow-lg shadow-amber-500/10">
                 <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">
                   MOST POPULAR
@@ -1737,7 +1755,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </button>
               </div>
 
-              {/* PLAN 3: 3 MONTHS PRO (₹599) */}
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">3 Months</span>
@@ -1770,9 +1787,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* STRICT PAYMENT VERIFICATION MODAL                              */}
-      {/* ============================================================== */}
+      {/* STRICT PAYMENT VERIFICATION MODAL */}
       {showVerificationModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
@@ -1853,9 +1868,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* ADMIN AUDIT & APPROVAL PANEL                                  */}
-      {/* ============================================================== */}
+      {/* ADMIN AUDIT & APPROVAL PANEL */}
       {showAdminModal && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full space-y-4 relative shadow-2xl max-h-[85vh] flex flex-col">
