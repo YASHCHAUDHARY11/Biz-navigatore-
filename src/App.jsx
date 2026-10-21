@@ -41,10 +41,10 @@ import {
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
 const FREE_USAGE_LIMIT = 5;
-const PRO_DAILY_LIMIT = 50;
+const PRO_DAILY_LIMIT = 200;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
-const ADMIN_SECRET_KEY = "admin123";
+const ADMIN_SECRET_KEY = "admin@12345";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
