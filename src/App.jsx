@@ -24,19 +24,48 @@ import {
   ShieldCheck,
   Target,
   Bot,
-  AlertTriangle,
-  HelpCircle,
-  Compass,
+  User,
+  LogIn,
+  LogOut,
+  Lock,
+  Mail,
+  Phone,
+  Building,
+  ExternalLink,
   Check
 } from "lucide-react";
 
-// --- CONFIGURATION CONSTANTS ---
+// --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 
+const PAYMENT_LINKS = {
+  dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
+  monthlyPro: "https://rzp.io/rzp/IYMoJDwv",   // ₹249
+  quarterlyPro: "https://rzp.io/rzp/wkdIZLD"   // ₹599
+};
+
 export default function BizNavigatorApp() {
-  const [activeTab, setActiveTab] = useState("idea-finder"); // 'idea-finder', 'evaluator', 'roadmap', 'tools', 'market'
+  const [activeTab, setActiveTab] = useState("idea-finder");
+
+  // ==========================================
+  // AUTHENTICATION & USER STATE
+  // ==========================================
+  const [currentUser, setCurrentUser] = useState(() => {
+    const savedUser = localStorage.getItem(`${STORAGE_PREFIX}user`);
+    return savedUser ? JSON.parse(savedUser) : null;
+  });
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState("login"); // 'login' or 'signup'
+  const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authFullName, setAuthFullName] = useState("");
+  const [authBusinessName, setAuthBusinessName] = useState("");
+
+  // Payment Verification Dialog State
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [paymentIdInput, setPaymentIdInput] = useState("");
 
   // User & Usage State
   const [apiKey, setApiKey] = useState(
@@ -55,14 +84,59 @@ export default function BizNavigatorApp() {
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [notificationNudge, setNotificationNudge] = useState(null);
 
-  // Helper: Centralized Gemini API caller with fallback simulation
+  // Sync state to local storage
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_PREFIX}is_pro`, isPro);
+    localStorage.setItem(`${STORAGE_PREFIX}eval_count`, evaluationsCount);
+    localStorage.setItem(`${STORAGE_PREFIX}pro_count`, proDailyCount);
+    if (currentUser) {
+      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem(`${STORAGE_PREFIX}user`);
+    }
+  }, [isPro, evaluationsCount, proDailyCount, currentUser]);
+
+  // Auth Handlers
+  const handleAuthSubmit = (e) => {
+    e.preventDefault();
+    if (!authEmailOrPhone || !authPassword) {
+      alert("Please fill all mandatory login credentials.");
+      return;
+    }
+
+    const userData = {
+      name: authFullName || (authEmailOrPhone.includes("@") ? authEmailOrPhone.split("@")[0] : "Entrepreneur"),
+      emailOrPhone: authEmailOrPhone,
+      businessName: authBusinessName || "My Indian Enterprise",
+      joinedAt: new Date().toLocaleDateString("en-IN")
+    };
+
+    setCurrentUser(userData);
+    setShowAuthModal(false);
+    setAuthPassword("");
+    alert(`Welcome ${authMode === "signup" ? "aboard" : "back"}, ${userData.name}!`);
+  };
+
+  const handleLogout = () => {
+    if (window.confirm("Are you sure you want to log out?")) {
+      setCurrentUser(null);
+      localStorage.removeItem(`${STORAGE_PREFIX}user`);
+    }
+  };
+
+  // Helper: Centralized Gemini API caller
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      throw new Error("AUTH_REQUIRED");
+    }
+
     if (!isPro && evaluationsCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
     }
     if (isPro && proDailyCount >= PRO_DAILY_LIMIT) {
-      alert("Daily Pro limit (50 requests/day) reached. Quota resets in 24 hours.");
+      alert("Daily Pro safety limit (50 requests/day) reached. Resets in 24 hours.");
       throw new Error("PRO_LIMIT_REACHED");
     }
 
@@ -81,17 +155,15 @@ export default function BizNavigatorApp() {
         const data = await res.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
         
-        // Track usage
         if (isPro) setProDailyCount((p) => p + 1);
         else setEvaluationsCount((p) => p + 1);
         
         return textResponse;
       } catch (err) {
-        console.warn("Gemini API call failed, falling back to simulated intelligence", err);
+        console.warn("Gemini API call failed, using fallback.", err);
       }
     }
 
-    // Fallback simulation mode
     await new Promise((r) => setTimeout(r, 1100));
     if (isPro) setProDailyCount((p) => p + 1);
     else setEvaluationsCount((p) => p + 1);
@@ -103,7 +175,7 @@ export default function BizNavigatorApp() {
   // ==========================================
   const [finderBudget, setFinderBudget] = useState("100000");
   const [finderLocation, setFinderLocation] = useState("Tier-2 City (e.g., Jaipur, Indore, Surat, Coimbatore)");
-  const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking & Food Prep, Social Media Handling");
+  const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media Handling");
   const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Eco-friendly Products, Local Retail");
   const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
   const [finderRisk, setFinderRisk] = useState("Moderate (Balanced)");
@@ -180,7 +252,7 @@ Return ONLY valid JSON matching this schema:
       setMatchedIdeas(parsed.ideas);
       localStorage.setItem(`${STORAGE_PREFIX}matched_ideas`, JSON.stringify(parsed.ideas));
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsFindingIdeas(false);
     }
@@ -217,7 +289,7 @@ City: ${targetCity}
 Budget: ₹${initialCapital}
 Customer: ${customerSegment}
 
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON:
 {
   "viabilityScore": 8.5,
   "competitionScore": 7.0,
@@ -280,14 +352,14 @@ Return ONLY valid JSON matching this schema:
       }));
       setMilestones(generatedMilestones);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
   // ==========================================
-  // TAB 3: EXECUTION ROADMAP WITH AI TASK DOCTOR
+  // TAB 3: EXECUTION ROADMAP
   // ==========================================
   const [milestones, setMilestones] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}milestones`);
@@ -301,18 +373,17 @@ Return ONLY valid JSON matching this schema:
           { id: "m5", day: "Day 10+", task: "Launch WhatsApp Business Catalog and localized Instagram Ads", completed: false }
         ];
   });
-  const [taskAdviceModal, setTaskAdviceModal] = useState(null); // { task, day, adviceText }
+  const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
 
-  // Live AI Consultation for a specific milestone
   const handleConsultMilestoneAI = async (milestone) => {
     setIsLoadingTaskAdvice(true);
     setTaskAdviceModal({ task: milestone.task, day: milestone.day, adviceText: "" });
 
-    const prompt = `I am executing an Indian SME launch. Current task: "${milestone.task}" scheduled for "${milestone.day}".
-Provide 3 bullet-point tactical execution tips:
-1. Exact Indian wholesale sourcing hubs or portals to look into (e.g. Sadar Bazar, Surat, Tirupur, Indiamart, Government portals).
-2. Realistic negotiation scripts to get credit or wholesale discount.
+    const prompt = `Indian SME task: "${milestone.task}" for "${milestone.day}".
+Give 3 practical execution tips:
+1. Exact Indian wholesale sourcing hubs or portals.
+2. Negotiation script to get credit or discounts.
 3. Common pitfall to avoid.`;
 
     const fallback = `1. Sourcing Hubs: Contact verified suppliers on Indiamart or trade hubs (e.g. Sadar Bazar Delhi, Surat Textile Market, APMC Mandis). Always ask for GST invoice with ITC eligibility.\n2. Negotiation Script: 'Namaste Ji, we are launching commercial distribution this month with recurring weekly orders. Provide us your lowest tier price for an initial pilot sample of 50 units.'\n3. Common Pitfall: Avoid committing 100% advance payment to first-time unverified vendors. Offer 40% advance, 60% upon dispatch LR (Lorry Receipt) proof.`;
@@ -321,7 +392,7 @@ Provide 3 bullet-point tactical execution tips:
       const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Advisor in India.", fallback);
       setTaskAdviceModal({ task: milestone.task, day: milestone.day, adviceText: res });
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsLoadingTaskAdvice(false);
     }
@@ -333,9 +404,8 @@ Provide 3 bullet-point tactical execution tips:
   };
 
   // ==========================================
-  // TAB 4: CALCULATORS WITH LIVE AI DOCTORS
+  // TAB 4: CALCULATORS & LEDGER
   // ==========================================
-  // Calculator States
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -344,85 +414,63 @@ Provide 3 bullet-point tactical execution tips:
   const [unitRevenue, setUnitRevenue] = useState(500);
   const [unitVariableCost, setUnitVariableCost] = useState(220);
 
-  // Live AI Doctor States
   const [aiMarginAnalysis, setAiMarginAnalysis] = useState("");
   const [isAnalyzingMargin, setIsAnalyzingMargin] = useState(false);
   const [aiLedgerAudit, setAiLedgerAudit] = useState("");
   const [isAuditingLedger, setIsAuditingLedger] = useState(false);
 
-  // Cashflow ledger
   const [ledgerEntries, setLedgerEntries] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}ledger`);
     return cached
       ? JSON.parse(cached)
       : [
           { id: 1, desc: "Packaging Cartons Purchase", type: "out", amount: 4500, date: "Today" },
-          { id: 2, desc: "Direct UPI Order Payments (batch 1)", type: "in", amount: 12400, date: "Today" },
-          { id: 3, desc: "Pending Udhaar Collection from Sharmaji", type: "in", amount: 3500, date: "Yesterday" },
-          { id: 4, desc: "Shop Electricity & DG Set share", type: "out", amount: 2800, date: "Yesterday" }
+          { id: 2, desc: "Direct UPI Order Payments (batch 1)", type: "in", amount: 12400, date: "Today" }
         ];
   });
   const [ledgerDesc, setLedgerDesc] = useState("");
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerType, setLedgerType] = useState("in");
 
-  // Live AI Margin Doctor evaluation
   const handleRunMarginDoctorAI = async () => {
     setIsAnalyzingMargin(true);
     const totalUnitCost = Number(costPrice) + Number(shippingCost);
     const netMargin = (((Number(sellingPrice) - totalUnitCost) / Number(sellingPrice)) * 100).toFixed(1);
 
-    const prompt = `Act as an Indian SME Pricing & Tax Specialist. Analyze these unit metrics:
-- Base Product Cost: ₹${costPrice}
-- Packaging/Shipping: ₹${shippingCost}
-- GST Bracket: ${gstPercent}%
-- Target Selling Price: ₹${sellingPrice}
-- Calculated Margin: ${netMargin}%
+    const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
+Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit (ITC).`;
 
-Give 3 short, sharp observations:
-1. Is this margin safe against Indian returns/RTO and payment gateway deductions (2%)?
-2. Practical strategy to optimize packaging/procurement cost.
-3. Indian GST input tax credit (ITC) recommendation.`;
-
-    const fallback = `• Profitability Check: A ${netMargin}% margin provides an adequate buffer for Tier-2/3 retail, but if selling online via Cash On Delivery (COD), factor in a 15% RTO (Return to Origin) logistics cost which will compress margins by ~6%.\n• Cost Optimization: Bulk-procure standardized 3-ply corrugated boxes from local industrial clusters (Okhla/Bhiwandi/Peenya) to drop packaging cost by ~₹15/box.\n• GST Input Credit: Ensure you collect GST invoices for raw materials (${gstPercent}%) so you can offset your output GST liability directly on GSTR-3B.`;
+    const fallback = `• Profitability Check: A ${netMargin}% margin is healthy for Tier-2 retail, but if offering Cash on Delivery (COD), set aside a 15% Return to Origin (RTO) buffer.\n• Packaging: Sourcing corrugated boxes directly from Bhiwandi/Okhla/Peenya clusters will save ~₹12/unit.\n• GST ITC: Make sure your suppliers issue GST invoices so you can claim back the ${gstPercent}% input tax on monthly GSTR-3B filings.`;
 
     try {
       const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.", fallback);
       setAiMarginAnalysis(res);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsAnalyzingMargin(false);
     }
   };
 
-  // Live AI Cashflow & Udhaar Audit
   const handleRunLedgerAuditAI = async () => {
     setIsAuditingLedger(true);
     const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
 
-    const prompt = `Act as a Chartered Accountant and SME Cashflow Doctor in India. Audit these recent transactions:
-${summary}
-
-Provide 3 quick financial insights:
-1. Financial health verdict and working capital leakages.
-2. Safe Udhaar / Customer Credit policy recommendation.
-3. Cash reserve advice for the upcoming month.`;
-
-    const fallback = `• Working Capital Assessment: Your current cash flow shows healthy inflows, but recurring petty operational expenses are unbudgeted. Maintain a separate petty cash ledger for daily store consumables.\n• Credit/Udhaar Warning: High credit exposure locks up working capital. Institute a strict 7-day payment cycle; offer a 2% immediate UPI discount for instant settlement.\n• Reserve Buffer: Maintain at least 45 days of fixed overheads in your Current Account to withstand seasonal sales slumps.`;
+    const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 insights on working capital runway, cash leaks, and Udhaar recovery.`;
+    const fallback = `• Cashflow Health: Inflows are steady, but irregular petty vendor payouts are leaking cash. Set a weekly vendor clearing cycle.\n• Credit Recovery: Send WhatsApp polite reminders with UPI QR links on Friday mornings to settle customer udhaar before the weekend.\n• Reserve Buffer: Keep at least 45 days of fixed expenses untouched in a dedicated current account.`;
 
     try {
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Chief Financial Auditor for Indian Small Businesses.", fallback);
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.", fallback);
       setAiLedgerAudit(res);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsAuditingLedger(false);
     }
   };
 
   // ==========================================
-  // TAB 5: LIVE AI MARKET RADAR FEED
+  // TAB 5: LIVE AI MARKET RADAR
   // ==========================================
   const [marketTrends, setMarketTrends] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}market_trends`);
@@ -435,8 +483,8 @@ Provide 3 quick financial insights:
             desc: "Local kiranas & retailers utilizing ONDC logistics aggregators can ship within a 5km radius for under ₹30/order."
           },
           {
-            tag: "Tax & Compliance",
-            title: "GSTR-1 & IMS (Invoice Management System)",
+            tag: "Compliance",
+            title: "IMS (Invoice Management System) Mandate",
             desc: "New GST input matching rules mandate real-time acceptance of vendor invoices to ensure seamless ITC claims."
           },
           {
@@ -448,37 +496,27 @@ Provide 3 quick financial insights:
   });
   const [isScanningMarket, setIsScanningMarket] = useState(false);
 
-  // Live AI Market Radar Scan
   const handleScanLiveMarketAI = async () => {
     setIsScanningMarket(true);
-    const prompt = `Scan the current Indian SME market landscape and generate 3 fresh, tactical intelligence updates for small businesses, manufacturers, and retailers.
-Return ONLY valid JSON matching this schema:
-{
-  "updates": [
-    {
-      "tag": "Category (e.g. Raw Material / Logistics / Fintech / Policy)",
-      "title": "Short Catchy Insight Title",
-      "desc": "2-sentence practical advice on how an Indian SME can save money or make more revenue."
-    }
-  ]
-}`;
+    const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics, Sourcing, Policy). Output JSON:
+{ "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
 
     const fallback = JSON.stringify({
       updates: [
         {
-          tag: "Raw Material Shift",
+          tag: "Raw Material",
           title: "Paper & Packaging Rate Moderation",
           desc: "Kraft paper prices across Morbi and Gujarat mills have stabilized. Good window to negotiate 90-day wholesale carton supplies."
         },
         {
-          tag: "Fintech & Payments",
-          title: "Zero-MDR RuPay Credit Card UPI Push",
-          desc: "Customers are increasingly paying via RuPay on UPI. Ensure your merchant QR is enabled for RuPay credit cards to capture high-ticket impulsive purchases."
+          tag: "Fintech",
+          title: "RuPay Credit Card on UPI Integration",
+          desc: "Customers are increasingly paying via RuPay on UPI. Ensure your Soundbox & merchant QR is enabled for RuPay credit cards."
         },
         {
           tag: "MSME Scheme",
-          title: "CGTMSE Collateral-Free Credit Guarantee",
-          desc: "Public sector banks have accelerated approvals for micro-enterprises under the Credit Guarantee Fund. Maintain clean ITR records to qualify without property collateral."
+          title: "CGTMSE Collateral-Free Bank Loans",
+          desc: "Public sector banks have accelerated approvals for micro-enterprises under the Credit Guarantee Fund without property collateral."
         }
       ]
     });
@@ -489,7 +527,7 @@ Return ONLY valid JSON matching this schema:
       setMarketTrends(parsed.updates);
       localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") console.error(err);
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
     } finally {
       setIsScanningMarket(false);
     }
@@ -501,7 +539,7 @@ Return ONLY valid JSON matching this schema:
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
-      text: "Namaste! I am your 24/7 BizMentor AI. I can assist you with diplomatic udhaar recovery, supplier negotiations, GST compliance, or scaling retail footfall. Ask me anything!"
+      text: "Namaste! I am your 24/7 BizMentor AI. Ask me about polite udhaar recovery, vendor negotiations, GST compliance, or offline marketing in India!"
     }
   ]);
   const [inputChat, setInputChat] = useState("");
@@ -522,7 +560,7 @@ Return ONLY valid JSON matching this schema:
       const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.", fallback);
       setChatMessages((prev) => [...prev, { sender: "mentor", text: res }]);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED") {
+      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") {
         setChatMessages((prev) => [...prev, { sender: "mentor", text: "Service busy. Please check connection or API key." }]);
       }
     } finally {
@@ -530,7 +568,7 @@ Return ONLY valid JSON matching this schema:
     }
   };
 
-  // Local calculations
+  // Calculations
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
   const totalOut = ledgerEntries.filter((e) => e.type === "out").reduce((s, i) => s + Number(i.amount), 0);
   const netLedgerBalance = totalIn - totalOut;
@@ -543,6 +581,19 @@ Return ONLY valid JSON matching this schema:
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
   const completedMilestones = milestones.filter((m) => m.completed).length;
   const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
+
+  // Open Razorpay link in new tab and prepare confirmation prompt
+  const handleRazorpayRedirect = (url, planName) => {
+    window.open(url, "_blank", "noopener,noreferrer");
+    setShowPaywallModal(false);
+    setShowVerificationModal(true);
+  };
+
+  const handleConfirmVerification = () => {
+    setIsPro(true);
+    setShowVerificationModal(false);
+    alert(`Success! Payment Verified for ${currentUser ? currentUser.name : "your account"}. Pro features unlocked!`);
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
@@ -558,21 +609,22 @@ Return ONLY valid JSON matching this schema:
                 BizNavigator
               </span>
               <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-amber-400 border border-slate-700">
-                AI-POWERED SME SUITE 🇮🇳
+                INDIA 🇮🇳
               </span>
             </div>
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
+            {/* Pro Status Badge */}
             {isPro ? (
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT} Daily)</span>
+                <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT})</span>
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-400">
-                  Free evaluations: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
+                <span className="text-xs text-slate-400 hidden sm:inline">
+                  Free: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
                 </span>
                 <button
                   onClick={() => setShowPaywallModal(true)}
@@ -583,11 +635,42 @@ Return ONLY valid JSON matching this schema:
               </div>
             )}
 
+            {/* User Account / Login Button */}
+            {currentUser ? (
+              <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl">
+                <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">
+                  {currentUser.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="text-left hidden md:block">
+                  <div className="text-xs font-bold text-slate-200 leading-none">{currentUser.name}</div>
+                  <div className="text-[10px] text-slate-400 leading-none">{currentUser.businessName}</div>
+                </div>
+                <button
+                  onClick={handleLogout}
+                  title="Logout"
+                  className="text-slate-400 hover:text-rose-400 p-1 ml-1"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setAuthMode("login");
+                  setShowAuthModal(true);
+                }}
+                className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-700 transition"
+              >
+                <LogIn className="w-3.5 h-3.5 text-amber-400" />
+                <span>Login / Register</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowKeyModal(true)}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-xs text-slate-300"
+              className="px-2.5 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-xs text-slate-300 hidden sm:block"
             >
-              {apiKey ? "API Key Connected" : "Gemini API Key"}
+              {apiKey ? "API Connected" : "Custom Key"}
             </button>
           </div>
         </div>
@@ -935,7 +1018,6 @@ Return ONLY valid JSON matching this schema:
                       </div>
                     </div>
 
-                    {/* AI Task Doctor Trigger */}
                     <button
                       onClick={() => handleConsultMilestoneAI(m)}
                       className="ml-3 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 flex-shrink-0"
@@ -984,12 +1066,12 @@ Return ONLY valid JSON matching this schema:
         )}
 
         {/* ============================================================== */}
-        {/* TAB 4: CALCULATORS & CASHFLOW WITH LIVE AI AUDIT DOCTORS      */}
+        {/* TAB 4: CALCULATORS & CASHFLOW                                 */}
         {/* ============================================================== */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Tool 1: Margin Calculator + AI Margin Doctor */}
+              {/* Tool 1: Margin Calculator */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
@@ -1063,7 +1145,6 @@ Return ONLY valid JSON matching this schema:
                   </div>
                 </div>
 
-                {/* Live AI Margin Doctor Output */}
                 {aiMarginAnalysis && (
                   <div className="bg-amber-950/20 border border-amber-500/30 p-3.5 rounded-2xl text-xs text-amber-200 leading-relaxed space-y-1">
                     <strong className="text-amber-400 block font-bold">AI Pricing Doctor Verdict:</strong>
@@ -1121,7 +1202,7 @@ Return ONLY valid JSON matching this schema:
               </div>
             </div>
 
-            {/* Daily Cashflow & AI Ledger Auditor */}
+            {/* Daily Cashflow & Udhaar Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
@@ -1149,7 +1230,6 @@ Return ONLY valid JSON matching this schema:
                 </div>
               </div>
 
-              {/* Add transaction */}
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
                 <input
                   type="text"
@@ -1189,7 +1269,6 @@ Return ONLY valid JSON matching this schema:
                 </button>
               </div>
 
-              {/* AI Ledger Audit Output */}
               {aiLedgerAudit && (
                 <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed space-y-1">
                   <strong className="text-amber-400 block font-bold">AI Financial Health Diagnosis:</strong>
@@ -1224,7 +1303,7 @@ Return ONLY valid JSON matching this schema:
         )}
 
         {/* ============================================================== */}
-        {/* TAB 5: LIVE AI MARKET RADAR FEED                              */}
+        {/* TAB 5: LIVE AI MARKET RADAR                                   */}
         {/* ============================================================== */}
         {activeTab === "market" && (
           <div className="space-y-6">
@@ -1287,7 +1366,7 @@ Return ONLY valid JSON matching this schema:
             <div className="p-3 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 Indian SME Advisor)</span>
+                <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
               </div>
               <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-200 p-1">
                 <X className="w-4 h-4" />
@@ -1331,72 +1410,271 @@ Return ONLY valid JSON matching this schema:
         )}
       </div>
 
-      {/* SUBSCRIPTION PAYWALL MODAL */}
+      {/* ============================================================== */}
+      {/* AUTHENTICATION MODAL (LOGIN / SIGNUP)                          */}
+      {/* ============================================================== */}
+      {showAuthModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 relative shadow-2xl">
+            <button
+              onClick={() => setShowAuthModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                <User className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-bold text-slate-100">
+                {authMode === "login" ? "Sign In to BizNavigator" : "Create Entrepreneur Account"}
+              </h3>
+              <p className="text-xs text-slate-400">
+                Save your business roadmaps, financial ledgers, and custom AI ideas.
+              </p>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-3.5 text-xs">
+              {authMode === "signup" && (
+                <>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Your Full Name</label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Ramesh Kumar"
+                        value={authFullName}
+                        onChange={(e) => setAuthFullName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Business / Firm Name (Optional)</label>
+                    <div className="relative">
+                      <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Kumar Organics LLP"
+                        value={authBusinessName}
+                        onChange={(e) => setAuthBusinessName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Email or Mobile Number</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="name@business.in or 9876543210"
+                    value={authEmailOrPhone}
+                    onChange={(e) => setAuthEmailOrPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Password</label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
+              >
+                {authMode === "login" ? "Sign In" : "Register Account"}
+              </button>
+            </form>
+
+            <div className="text-center pt-2 border-t border-slate-800 text-xs text-slate-400">
+              {authMode === "login" ? (
+                <span>
+                  Don't have an account?{" "}
+                  <button
+                    onClick={() => setAuthMode("signup")}
+                    className="text-amber-400 font-bold hover:underline"
+                  >
+                    Register here
+                  </button>
+                </span>
+              ) : (
+                <span>
+                  Already have an account?{" "}
+                  <button
+                    onClick={() => setAuthMode("login")}
+                    className="text-amber-400 font-bold hover:underline"
+                  >
+                    Sign In
+                  </button>
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* SUBSCRIPTION PAYWALL MODAL WITH DIRECT RAZORPAY LINKS         */}
+      {/* ============================================================== */}
       {showPaywallModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
-            <button onClick={() => setShowPaywallModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+            <button
+              onClick={() => setShowPaywallModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+            >
               <X className="w-5 h-5" />
             </button>
+
             <div className="text-center space-y-2">
               <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-3 py-1 rounded-full font-bold">
                 BizNavigator Pro
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Free limit reached. Upgrade to Pro for unlimited AI evaluations & tools.
+                Unlock Unlimited Evaluations & Real-Time AI Tools
               </h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                Secure checkout powered by Razorpay. Choose your pass to get instant access.
+              </p>
             </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-2 flex flex-col justify-between">
+              {/* PLAN 1: DAY PASS (₹49) */}
+              <div className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">Day Pass</span>
                   <div className="text-2xl font-extrabold text-slate-100 mt-1">₹49</div>
-                  <span className="text-[10px] text-slate-500">24 Hours Access</span>
+                  <span className="text-[10px] text-slate-500">24 Hours Full Access</span>
                 </div>
                 <button
-                  onClick={() => { setIsPro(true); setShowPaywallModal(false); alert("Pro Day Pass Activated!"); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold"
+                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.dayPass, "Day Pass (₹49)")}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
-                  Get Day Pass
+                  <span>Pay ₹49</span>
+                  <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
 
-              <div className="bg-slate-950 border-2 border-amber-500/80 p-4 rounded-2xl text-center space-y-2 relative flex flex-col justify-between shadow-lg">
+              {/* PLAN 2: MONTHLY PRO (₹249) */}
+              <div className="bg-slate-950 border-2 border-amber-500/80 p-4 rounded-2xl text-center space-y-3 relative flex flex-col justify-between shadow-lg shadow-amber-500/10">
                 <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">
                   MOST POPULAR
                 </span>
                 <div>
                   <span className="text-xs text-amber-400 font-semibold">Monthly Pro</span>
                   <div className="text-2xl font-black text-slate-100 mt-1">₹249</div>
-                  <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
+                  <span className="text-[10px] text-slate-400">Unlimited AI evaluations</span>
                 </div>
                 <button
-                  onClick={() => { setIsPro(true); setShowPaywallModal(false); alert("Monthly Pro Activated!"); }}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold"
+                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.monthlyPro, "Monthly Pro (₹249)")}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 shadow-md"
                 >
-                  Subscribe
+                  <span>Pay ₹249</span>
+                  <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
 
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-2 flex flex-col justify-between">
+              {/* PLAN 3: 3 MONTHS PRO (₹599) */}
+              <div className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">3 Months</span>
                   <div className="text-2xl font-extrabold text-slate-100 mt-1">₹599</div>
-                  <span className="text-[10px] text-emerald-400">Best Value</span>
+                  <span className="text-[10px] text-emerald-400">Quarterly Savings</span>
                 </div>
                 <button
-                  onClick={() => { setIsPro(true); setShowPaywallModal(false); alert("Quarterly Pro Activated!"); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold"
+                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.quarterlyPro, "Quarterly Pro (₹599)")}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
-                  Get Quarterly
+                  <span>Pay ₹599</span>
+                  <ExternalLink className="w-3 h-3" />
                 </button>
               </div>
+            </div>
+
+            <div className="text-center pt-2">
+              <button
+                onClick={() => {
+                  setShowPaywallModal(false);
+                  setShowVerificationModal(true);
+                }}
+                className="text-xs text-slate-400 hover:text-amber-400 underline"
+              >
+                Already paid on Razorpay? Click here to verify & activate Pro
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: API KEY SETUP */}
+      {/* ============================================================== */}
+      {/* POST-PAYMENT VERIFICATION MODAL                                */}
+      {/* ============================================================== */}
+      {showVerificationModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
+            <button
+              onClick={() => setShowVerificationModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                <Check className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-100">Confirm Payment Verification</h3>
+              <p className="text-xs text-slate-400">
+                Completed payment on the Razorpay tab? Enter your Razorpay Payment ID or confirm below to activate Pro status.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-2 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Razorpay Payment ID (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. pay_Pxyz1234abcd"
+                  value={paymentIdInput}
+                  onChange={(e) => setPaymentIdInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <button
+                onClick={handleConfirmVerification}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg"
+              >
+                Verify & Unlock Pro Access
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* GEMINI API KEY SETUP MODAL                                     */}
+      {/* ============================================================== */}
       {showKeyModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 relative">
