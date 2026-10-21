@@ -1,9 +1,4 @@
 
-//Here is the corrected and complete code. The **1-click admin sign-in button has been completely deleted** from the login screen. 
-
-//To access the admin account now, you must **manually type the credentials** into the form. Once logged in, the **"Administrative Works ⚙️"** button inside the admin header grants full access to all system and subscription operations.
-
-//```jsx
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -43,7 +38,9 @@ import {
   Crown,
   Users,
   Settings,
-  Layers
+  Layers,
+  KeyRound,
+  ArrowLeft
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
@@ -61,19 +58,28 @@ const PAYMENT_LINKS = {
 
 export default function BizNavigatorApp() {
   // ==========================================
-  // 1. STRICT AUTHENTICATION STATE
+  // 1. STRICT AUTHENTICATION & RECOVERY STATE
   // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem(`${STORAGE_PREFIX}user`);
     return savedUser ? JSON.parse(savedUser) : null;
   });
 
-  const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'admin'
+  const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'admin', 'forgot'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authFullName, setAuthFullName] = useState("");
   const [authBusinessName, setAuthBusinessName] = useState("");
   const [authError, setAuthError] = useState("");
+  const [authSuccessNotice, setAuthSuccessNotice] = useState("");
+
+  // Forgot Password Flow States
+  const [forgotStep, setForgotStep] = useState(1); // 1 = Enter Account, 2 = Enter OTP & New Password
+  const [forgotAccount, setForgotAccount] = useState("");
+  const [forgotEnteredOtp, setForgotEnteredOtp] = useState("");
+  const [forgotGeneratedOtp, setForgotGeneratedOtp] = useState("");
+  const [forgotNewPassword, setForgotNewPassword] = useState("");
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState("");
 
   // ==========================================
   // 2. SUBSCRIPTION & PAYMENT VERIFICATION STATE
@@ -113,7 +119,7 @@ export default function BizNavigatorApp() {
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
-  const [adminConsoleTab, setAdminConsoleTab] = useState("txns"); // 'txns', 'users', 'system'
+  const [adminConsoleTab, setAdminConsoleTab] = useState("txns");
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
 
   const [inputPaymentId, setInputPaymentId] = useState("");
@@ -149,34 +155,39 @@ export default function BizNavigatorApp() {
   }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns, registeredUsersList]);
 
   // ==========================================
-  // AUTHENTICATION LOGIC (STRICT FORM SUBMISSION ONLY)
+  // AUTHENTICATION & PASSWORD RESET LOGIC
   // ==========================================
+  const executeAdminLogin = () => {
+    const adminUser = {
+      name: "Master Administrator",
+      emailOrPhone: ADMIN_EMAIL,
+      businessName: "BizNavigator Headquarters",
+      role: "admin",
+      joinedAt: new Date().toLocaleDateString("en-IN")
+    };
+    setCurrentUser(adminUser);
+    setIsPro(true);
+    setAuthError("");
+    setAuthPassword("");
+    alert("Welcome Administrator! Master administrative works console unlocked.");
+  };
+
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     setAuthError("");
+    setAuthSuccessNotice("");
 
     const inputAccount = authEmailOrPhone.trim().toLowerCase();
     const inputPass = authPassword.trim();
 
-    // 1. STRICT MANUAL ADMIN LOGIN (User must manually type credentials)
+    // 1. STRICT MANUAL ADMIN LOGIN
     if (
       (authMode === "admin" && inputPass === ADMIN_SECRET_KEY) ||
       (authMode === "login" &&
         (inputAccount === "admin" || inputAccount === ADMIN_EMAIL) &&
         inputPass === ADMIN_SECRET_KEY)
     ) {
-      const adminUser = {
-        name: "Master Administrator",
-        emailOrPhone: ADMIN_EMAIL,
-        businessName: "BizNavigator Headquarters",
-        role: "admin",
-        joinedAt: new Date().toLocaleDateString("en-IN")
-      };
-      setCurrentUser(adminUser);
-      setIsPro(true);
-      setAuthError("");
-      setAuthPassword("");
-      alert("Authenticated as Administrator. Administrative console unlocked.");
+      executeAdminLogin();
       return;
     }
 
@@ -245,6 +256,78 @@ export default function BizNavigatorApp() {
       if (user.isProUser) setIsPro(true);
       setAuthPassword("");
     }
+  };
+
+  // --- FORGOT PASSWORD STEP 1: SEND OTP ---
+  const handleForgotSendOtp = (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+
+    const target = forgotAccount.trim().toLowerCase();
+    if (!target) {
+      setAuthError("Please enter your registered email or 10-digit mobile number.");
+      return;
+    }
+
+    if (target === "admin" || target === ADMIN_EMAIL) {
+      setAuthError("Admin credentials cannot be reset via SMS/Email. Please use ADMIN_SECRET_KEY.");
+      return;
+    }
+
+    const found = registeredUsersList.find((u) => u.emailOrPhone.toLowerCase() === target);
+    if (!found) {
+      setAuthError("No registered account found with this email or mobile number.");
+      return;
+    }
+
+    // Generate simulated 6-digit OTP
+    const generated = Math.floor(100000 + Math.random() * 900000).toString();
+    setForgotGeneratedOtp(generated);
+    setForgotStep(2);
+    setAuthSuccessNotice(`6-digit OTP code sent to ${target}! (Verification Code: ${generated})`);
+  };
+
+  // --- FORGOT PASSWORD STEP 2: VERIFY OTP & RESET ---
+  const handleForgotResetPassword = (e) => {
+    e.preventDefault();
+    setAuthError("");
+
+    if (forgotEnteredOtp.trim() !== forgotGeneratedOtp) {
+      setAuthError("Invalid OTP code. Please enter the correct 6-digit verification code.");
+      return;
+    }
+
+    if (!forgotNewPassword || forgotNewPassword.length < 4) {
+      setAuthError("Password must be at least 4 characters long.");
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setAuthError("New Password and Confirm Password do not match.");
+      return;
+    }
+
+    // Update password in users directory
+    const target = forgotAccount.trim().toLowerCase();
+    const updatedUsers = registeredUsersList.map((u) => {
+      if (u.emailOrPhone.toLowerCase() === target) {
+        return { ...u, password: forgotNewPassword };
+      }
+      return u;
+    });
+
+    setRegisteredUsersList(updatedUsers);
+
+    // Reset forgot state & return to login
+    setForgotStep(1);
+    setAuthEmailOrPhone(forgotAccount);
+    setAuthPassword("");
+    setForgotEnteredOtp("");
+    setForgotNewPassword("");
+    setForgotConfirmPassword("");
+    setAuthMode("login");
+    setAuthSuccessNotice("Password updated successfully! Please sign in with your new password.");
   };
 
   const handleLogout = () => {
@@ -792,7 +875,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const completedMilestones = milestones.filter((m) => m.completed).length;
   const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
-  // STRICT AUTH WALL (NO DIRECT QUICK BYPASS LINKS)
+  // STRICT AUTH WALL WITH FORGOT PASSWORD SYSTEM
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
@@ -813,40 +896,58 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
             {/* Top Auth Tabs: Sign In | Register | Admin Login */}
-            <div className="flex border-b border-slate-800 pb-3">
-              <button
-                onClick={() => { setAuthMode("login"); setAuthError(""); }}
-                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
-                  authMode === "login"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => { setAuthMode("signup"); setAuthError(""); }}
-                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
-                  authMode === "signup"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                Register
-              </button>
-              <button
-                onClick={() => { setAuthMode("admin"); setAuthError(""); }}
-                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
-                  authMode === "admin"
-                    ? "border-rose-500 text-rose-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Crown className="w-3.5 h-3.5" />
-                <span>Admin Login 🛡️</span>
-              </button>
-            </div>
+            {authMode !== "forgot" ? (
+              <div className="flex border-b border-slate-800 pb-3">
+                <button
+                  onClick={() => { setAuthMode("login"); setAuthError(""); setAuthSuccessNotice(""); }}
+                  className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
+                    authMode === "login"
+                      ? "border-amber-500 text-amber-400"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccessNotice(""); }}
+                  className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
+                    authMode === "signup"
+                      ? "border-amber-500 text-amber-400"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Register
+                </button>
+                <button
+                  onClick={() => { setAuthMode("admin"); setAuthError(""); setAuthSuccessNotice(""); }}
+                  className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
+                    authMode === "admin"
+                      ? "border-rose-500 text-rose-400"
+                      : "border-transparent text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  <Crown className="w-3.5 h-3.5" />
+                  <span>Admin Login 🛡️</span>
+                </button>
+              </div>
+            ) : (
+              /* Forgot Password Header */
+              <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("login"); setAuthError(""); setAuthSuccessNotice(""); setForgotStep(1); }}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </button>
+                <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
+                  <KeyRound className="w-4 h-4 text-amber-400" />
+                  <span>Reset Account Password</span>
+                </h3>
+              </div>
+            )}
 
+            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -854,65 +955,26 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
-              {authMode === "admin" ? (
-                <div>
-                  <label className="block text-slate-300 font-semibold mb-1">
-                    Master Admin Secret Key
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-rose-400 absolute left-3 top-2.5" />
-                    <input
-                      type="password"
-                      required
-                      placeholder="Enter Admin Secret Password"
-                      value={authPassword}
-                      onChange={(e) => setAuthPassword(e.target.value)}
-                      className="w-full bg-slate-950 border border-rose-500/40 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-rose-400 font-mono text-xs"
-                    />
-                  </div>
-                  <span className="text-[10px] text-slate-500 block mt-1">
-                    Enter master administrative credentials to unlock system operations.
-                  </span>
-                </div>
-              ) : (
-                <>
-                  {authMode === "signup" && (
-                    <>
-                      <div>
-                        <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
-                        <div className="relative">
-                          <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                          <input
-                            type="text"
-                            required
-                            placeholder="e.g. Anand Sharma"
-                            value={authFullName}
-                            onChange={(e) => setAuthFullName(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
-                      </div>
+            {/* Success Notice */}
+            {authSuccessNotice && (
+              <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
+                <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+                <span>{authSuccessNotice}</span>
+              </div>
+            )}
 
-                      <div>
-                        <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
-                        <div className="relative">
-                          <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                          <input
-                            type="text"
-                            placeholder="e.g. Sharma Textiles / Cloud Kitchen"
-                            value={authBusinessName}
-                            onChange={(e) => setAuthBusinessName(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
-                      </div>
-                    </>
-                  )}
-
+            {/* ============================================================== */}
+            {/* VIEW A: FORGOT PASSWORD FLOW (STEP 1 & STEP 2)                 */}
+            {/* ============================================================== */}
+            {authMode === "forgot" ? (
+              forgotStep === 1 ? (
+                <form onSubmit={handleForgotSendOtp} className="space-y-4 text-xs">
+                  <p className="text-slate-400 text-[11px] leading-relaxed">
+                    Enter the Email or 10-Digit Mobile Number linked to your SME account to receive a 6-digit OTP verification code.
+                  </p>
                   <div>
                     <label className="block text-slate-300 font-semibold mb-1">
-                      Email or 10-Digit Mobile Number
+                      Email or Mobile Number
                     </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
@@ -920,45 +982,205 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         type="text"
                         required
                         placeholder="9876543210 or founder@startup.in"
-                        value={authEmailOrPhone}
-                        onChange={(e) => setAuthEmailOrPhone(e.target.value)}
+                        value={forgotAccount}
+                        onChange={(e) => setForgotAccount(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg shadow-amber-500/20"
+                  >
+                    Send 6-Digit OTP Code
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleForgotResetPassword} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      6-Digit OTP Verification Code
+                    </label>
+                    <div className="relative">
+                      <KeyRound className="w-4 h-4 text-amber-400 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        placeholder="e.g. 482910"
+                        value={forgotEnteredOtp}
+                        onChange={(e) => setForgotEnteredOtp(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 font-mono tracking-widest focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">New Password</label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="password"
+                        required
+                        placeholder="At least 4 characters"
+                        value={forgotNewPassword}
+                        onChange={(e) => setForgotNewPassword(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Password</label>
+                    <label className="block text-slate-300 font-semibold mb-1">Confirm New Password</label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                       <input
                         type="password"
                         required
-                        placeholder="••••••••"
-                        value={authPassword}
-                        onChange={(e) => setAuthPassword(e.target.value)}
+                        placeholder="Re-enter new password"
+                        value={forgotConfirmPassword}
+                        onChange={(e) => setForgotConfirmPassword(e.target.value)}
                         className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
                       />
                     </div>
                   </div>
-                </>
-              )}
 
-              <button
-                type="submit"
-                className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg ${
-                  authMode === "admin"
-                    ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 shadow-rose-500/20"
-                    : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20"
-                }`}
-              >
-                {authMode === "admin"
-                  ? "Authenticate Admin Credentials 🛡️"
-                  : authMode === "login"
-                  ? "Sign In & Access Platform"
-                  : "Register & Start Free"}
-              </button>
-            </form>
+                  <button
+                    type="submit"
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
+                  >
+                    Update Password & Return to Sign In
+                  </button>
+                </form>
+              )
+            ) : (
+              /* ============================================================== */
+              /* VIEW B: STANDARD SIGN IN / SIGNUP / ADMIN FORM                */
+              /* ============================================================== */
+              <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
+                {authMode === "admin" ? (
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Master Admin Secret Key
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-rose-400 absolute left-3 top-2.5" />
+                      <input
+                        type="password"
+                        required
+                        placeholder="Enter Admin Secret Password"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-rose-500/40 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-rose-400 font-mono text-xs"
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-1">
+                      Enter master administrative credentials to unlock system operations.
+                    </span>
+                  </div>
+                ) : (
+                  <>
+                    {authMode === "signup" && (
+                      <>
+                        <div>
+                          <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
+                          <div className="relative">
+                            <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                            <input
+                              type="text"
+                              required
+                              placeholder="e.g. Anand Sharma"
+                              value={authFullName}
+                              onChange={(e) => setAuthFullName(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
+                          <div className="relative">
+                            <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                            <input
+                              type="text"
+                              placeholder="e.g. Sharma Textiles / Cloud Kitchen"
+                              value={authBusinessName}
+                              onChange={(e) => setAuthBusinessName(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">
+                        Email or 10-Digit Mobile Number
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          required
+                          placeholder="9876543210 or founder@startup.in"
+                          value={authEmailOrPhone}
+                          onChange={(e) => setAuthEmailOrPhone(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-300 font-semibold">Password</label>
+                        {authMode === "login" && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAuthMode("forgot");
+                              setForgotStep(1);
+                              setAuthError("");
+                              setAuthSuccessNotice("");
+                              setForgotAccount(authEmailOrPhone);
+                            }}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 hover:underline transition"
+                          >
+                            Forgot Password?
+                          </button>
+                        )}
+                      </div>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                <button
+                  type="submit"
+                  className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg ${
+                    authMode === "admin"
+                      ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 shadow-rose-500/20"
+                      : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20"
+                  }`}
+                >
+                  {authMode === "admin"
+                    ? "Authenticate Admin Credentials 🛡️"
+                    : authMode === "login"
+                    ? "Sign In & Access Platform"
+                    : "Register & Start Free"}
+                </button>
+              </form>
+            )}
 
             <div className="text-[11px] text-slate-500 text-center space-y-1">
               <p>🔒 Strictly protected SME platform. Manual login authentication required.</p>
@@ -997,7 +1219,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="hidden sm:inline">ADMINISTRATOR</span>
                 </div>
 
-                {/* THE ONLY ADMINISTRATIVE WORKS BUTTON INSIDE ADMIN ACCOUNT */}
                 <button
                   onClick={() => setShowAdminConsoleModal(true)}
                   className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 transition transform hover:scale-105"
@@ -1949,7 +2170,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <X className="w-5 h-5" />
             </button>
 
-            {/* Console Header */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-xl bg-rose-950 border border-rose-500/40 flex items-center justify-center text-rose-400">
@@ -1967,7 +2187,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* Sub-Tabs inside Admin Console */}
             <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
               <button
                 onClick={() => setAdminConsoleTab("txns")}
