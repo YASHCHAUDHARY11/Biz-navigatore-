@@ -59,8 +59,13 @@ const PAYMENT_LINKS = {
 };
 
 export default function BizNavigatorApp() {
+  // Clear any leaked legacy global Pro flag from previous sessions
+  useEffect(() => {
+    localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
+  }, []);
+
   // ==========================================
-  // 1. STRICT AUTHENTICATION & RECOVERY STATE
+  // 1. STRICT AUTHENTICATION STATE
   // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem(`${STORAGE_PREFIX}user`);
@@ -76,7 +81,7 @@ export default function BizNavigatorApp() {
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
 
   // Real Email OTP States
-  const [otpStep, setOtpStep] = useState(1); // 1 = Request, 2 = Verify & Complete
+  const [otpStep, setOtpStep] = useState(1);
   const [activeOtpCode, setActiveOtpCode] = useState("");
   const [enteredOtp, setEnteredOtp] = useState("");
   const [otpExpiresAt, setOtpExpiresAt] = useState(null);
@@ -92,38 +97,16 @@ export default function BizNavigatorApp() {
     return cached ? JSON.parse(cached) : { serviceId: "", templateId: "", publicKey: "" };
   });
 
-  // Forgot Password New Password inputs
+  // Forgot Password inputs
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
   // ==========================================
-  // 2. SUBSCRIPTION & PAYMENT VERIFICATION STATE
+  // 2. REGISTERED USERS & AUDIT TRANSACTIONS
   // ==========================================
-  const [isPro, setIsPro] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}is_pro`) === "true"
-  );
-  const [verificationStatus, setVerificationStatus] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}verify_status`) || "none"
-  );
-  const [submittedPaymentId, setSubmittedPaymentId] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}last_payment_id`) || ""
-  );
-
   const [submittedTxns, setSubmittedTxns] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}all_txns`);
-    return cached
-      ? JSON.parse(cached)
-      : [
-          {
-            id: "txn_demo_1",
-            paymentId: "pay_Qz84kJ928xLa90",
-            userName: "Ramesh Trading Co",
-            userEmail: "ramesh@trade.in",
-            plan: "Monthly Pro (₹249)",
-            status: "approved",
-            submittedAt: "Yesterday, 4:30 PM"
-          }
-        ];
+    return cached ? JSON.parse(cached) : [];
   });
 
   const [registeredUsersList, setRegisteredUsersList] = useState(() => {
@@ -131,6 +114,54 @@ export default function BizNavigatorApp() {
     return cached ? JSON.parse(cached) : [];
   });
 
+  // =========================================================================
+  // 3. STRICT INDIVIDUAL USER PRO AUTHORIZATION (ZERO LEAKAGE)
+  // =========================================================================
+  // Pro is derived strictly from:
+  // 1. Being the Master Admin
+  // 2. An Admin manually granting Pro (`user.isProUser === true`)
+  // 3. Having a transaction approved by the Administrator
+  const isUserPro = Boolean(
+    currentUser && (
+      currentUser.role === "admin" ||
+      currentUser.isProUser === true ||
+      registeredUsersList.some(
+        (u) =>
+          u.emailOrPhone?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
+          u.isProUser === true
+      ) ||
+      submittedTxns.some(
+        (t) =>
+          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
+          t.status === "approved"
+      )
+    )
+  );
+
+  // Per-User Free Evaluation Counter (strictly stored per email/phone)
+  const getUserUsageCount = () => {
+    if (!currentUser) return 0;
+    const key = `${STORAGE_PREFIX}usage_${currentUser.emailOrPhone?.toLowerCase()}`;
+    return parseInt(localStorage.getItem(key)) || 0;
+  };
+
+  const [evaluationsCount, setEvaluationsCount] = useState(() => getUserUsageCount());
+
+  // Pro Daily Usage Counter
+  const [proDailyCount, setProDailyCount] = useState(
+    () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
+  );
+
+  // Check if current user has a pending verification
+  const userPendingTxn = currentUser
+    ? submittedTxns.find(
+        (t) =>
+          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
+          t.status === "pending"
+      )
+    : null;
+
+  // Modals
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
@@ -146,14 +177,15 @@ export default function BizNavigatorApp() {
   const [apiKey, setApiKey] = useState(
     () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || ""
   );
-  const [evaluationsCount, setEvaluationsCount] = useState(
-    () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}eval_count`)) || 0
-  );
-  const [proDailyCount, setProDailyCount] = useState(
-    () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
-  );
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [notificationNudge, setNotificationNudge] = useState(null);
+
+  // Re-sync user-specific evaluations counter on account switch
+  useEffect(() => {
+    if (currentUser) {
+      setEvaluationsCount(getUserUsageCount());
+    }
+  }, [currentUser]);
 
   // Countdown timer effect for OTP
   useEffect(() => {
@@ -179,19 +211,20 @@ export default function BizNavigatorApp() {
 
   // Sync state to localStorage
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_PREFIX}is_pro`, isPro);
-    localStorage.setItem(`${STORAGE_PREFIX}verify_status`, verificationStatus);
-    localStorage.setItem(`${STORAGE_PREFIX}eval_count`, evaluationsCount);
     localStorage.setItem(`${STORAGE_PREFIX}pro_count`, proDailyCount);
     localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(submittedTxns));
     localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(registeredUsersList));
     localStorage.setItem(`${STORAGE_PREFIX}emailjs_config`, JSON.stringify(emailJsConfig));
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
+      localStorage.setItem(
+        `${STORAGE_PREFIX}usage_${currentUser.emailOrPhone?.toLowerCase()}`,
+        evaluationsCount
+      );
     } else {
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
     }
-  }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns, registeredUsersList, emailJsConfig]);
+  }, [proDailyCount, currentUser, submittedTxns, registeredUsersList, emailJsConfig, evaluationsCount]);
 
   // ==========================================
   // REAL EMAIL OTP DISPATCH ENGINE
@@ -200,7 +233,6 @@ export default function BizNavigatorApp() {
     setIsSendingOtp(true);
     setAuthError("");
 
-    // Attempt live delivery if EmailJS keys are provided
     if (emailJsConfig.serviceId && emailJsConfig.templateId && emailJsConfig.publicKey) {
       try {
         const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
@@ -223,15 +255,12 @@ export default function BizNavigatorApp() {
         if (response.ok) {
           setIsSendingOtp(false);
           return { success: true, live: true };
-        } else {
-          console.warn("EmailJS delivery failed, falling back to real in-app verification.");
         }
       } catch (err) {
         console.warn("EmailJS Network error:", err);
       }
     }
 
-    // Fallback real verification simulator
     await new Promise((r) => setTimeout(r, 900));
     setIsSendingOtp(false);
     return { success: true, live: false };
@@ -243,9 +272,9 @@ export default function BizNavigatorApp() {
 
     setActiveOtpCode(newOtp);
     setOtpTargetEmail(cleanEmail);
-    setOtpExpiresAt(Date.now() + 5 * 60 * 1000); // 5 minutes validity
+    setOtpExpiresAt(Date.now() + 5 * 60 * 1000);
     setOtpSecondsLeft(300);
-    setResendCooldown(30); // 30s resend wait
+    setResendCooldown(30);
 
     const result = await sendEmailOtp(cleanEmail, newOtp, "Entrepreneur", purposeText);
 
@@ -258,7 +287,7 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // AUTHENTICATION LOGIC
+  // AUTHENTICATION LOGIC (STRICT SEPARATION)
   // ==========================================
   const handleAuthSubmit = (e) => {
     e.preventDefault();
@@ -268,7 +297,7 @@ export default function BizNavigatorApp() {
     const inputAccount = authEmailOrPhone.trim().toLowerCase();
     const inputPass = authPassword.trim();
 
-    // 1. STRICT ADMIN LOGIN
+    // 1. STRICT MANUAL ADMIN LOGIN
     if (
       (authMode === "admin" && inputPass === ADMIN_SECRET_KEY) ||
       (authMode === "login" &&
@@ -280,10 +309,10 @@ export default function BizNavigatorApp() {
         emailOrPhone: ADMIN_EMAIL,
         businessName: "BizNavigator Headquarters",
         role: "admin",
+        isProUser: true,
         joinedAt: new Date().toLocaleDateString("en-IN")
       };
       setCurrentUser(adminUser);
-      setIsPro(true);
       setAuthError("");
       setAuthPassword("");
       alert("Authenticated as Administrator. Administrative console unlocked.");
@@ -306,6 +335,7 @@ export default function BizNavigatorApp() {
     );
 
     if (!user) {
+      // First-time fallback user creation (strictly non-pro by default)
       if (registeredUsersList.length === 0) {
         const defaultUser = {
           name: authEmailOrPhone.split("@")[0] || "Entrepreneur",
@@ -325,11 +355,10 @@ export default function BizNavigatorApp() {
     }
 
     setCurrentUser(user);
-    if (user.isProUser) setIsPro(true);
     setAuthPassword("");
   };
 
-  // --- FORGOT PASSWORD STEP 1: REQUEST OTP ---
+  // FORGOT PASSWORD STEP 1
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -355,7 +384,7 @@ export default function BizNavigatorApp() {
     await triggerOtpGeneration(target, "Password Reset Verification");
   };
 
-  // --- FORGOT PASSWORD STEP 2: VERIFY OTP & RESET PASSWORD ---
+  // FORGOT PASSWORD STEP 2
   const handleForgotVerifyAndReset = (e) => {
     e.preventDefault();
     setAuthError("");
@@ -380,7 +409,6 @@ export default function BizNavigatorApp() {
       return;
     }
 
-    // Update user password in local storage
     const updated = registeredUsersList.map((u) => {
       if (u.emailOrPhone.toLowerCase() === otpTargetEmail.toLowerCase()) {
         return { ...u, password: resetNewPassword };
@@ -390,7 +418,6 @@ export default function BizNavigatorApp() {
 
     setRegisteredUsersList(updated);
 
-    // Reset forgot password state
     setOtpStep(1);
     setEnteredOtp("");
     setResetNewPassword("");
@@ -400,6 +427,7 @@ export default function BizNavigatorApp() {
     setAuthSuccessNotice("Password updated successfully! Please sign in with your new password.");
   };
 
+  // Strict Logout (clears session and counters)
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
       setCurrentUser(null);
@@ -409,7 +437,7 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // PAYMENT & VERIFICATION LOGIC
+  // PAYMENT & VERIFICATION LOGIC (NO AUTO-APPROVAL)
   // ==========================================
   const handleInitiatePayment = (url, planName) => {
     setSelectedPlanForVerification(planName);
@@ -434,9 +462,9 @@ export default function BizNavigatorApp() {
       return;
     }
 
-    const idAlreadyUsed = submittedTxns.some((t) => t.paymentId === cleanId && t.status === "approved");
+    const idAlreadyUsed = submittedTxns.some((t) => t.paymentId === cleanId);
     if (idAlreadyUsed) {
-      setVerificationError("This Payment ID has already been redeemed and approved.");
+      setVerificationError("This Payment ID has already been submitted for verification.");
       return;
     }
 
@@ -445,49 +473,93 @@ export default function BizNavigatorApp() {
     setTimeout(() => {
       setIsVerifying(false);
 
+      // SECURITY FIX: Submissions are strictly PENDING. Pro is NOT granted until Admin approves.
       const newTxn = {
         id: `txn_${Date.now()}`,
         paymentId: cleanId,
         userEmail: currentUser?.emailOrPhone,
         userName: currentUser?.name,
         plan: selectedPlanForVerification,
-        status: "approved",
+        status: "pending", // <--- PENDING APPROVAL
         submittedAt: new Date().toLocaleString("en-IN")
       };
 
       const updated = [newTxn, ...submittedTxns];
       setSubmittedTxns(updated);
-      setSubmittedPaymentId(cleanId);
-      setIsPro(true);
-      setVerificationStatus("verified");
       setShowVerificationModal(false);
-      alert(`Payment Verified! Pro unlocked. Payment ID: ${cleanId}`);
-    }, 1400);
+      alert(
+        `Payment ID ${cleanId} submitted successfully!\n\nStatus: PENDING ADMIN APPROVAL.\nYour Pro subscription will activate automatically as soon as the administrator verifies your payment.`
+      );
+    }, 1200);
   };
 
-  // Admin Operational Controls
+  // Admin Operational Controls (Only the Admin can approve Pro access)
   const handleAdminApprove = (txnId) => {
-    const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "approved" } : t));
-    setSubmittedTxns(updated);
-    setIsPro(true);
-    setVerificationStatus("verified");
-    alert("Transaction marked as Approved by Administrator.");
+    const targetTxn = submittedTxns.find((t) => t.id === txnId);
+    if (!targetTxn) return;
+
+    const updatedTxns = submittedTxns.map((t) =>
+      t.id === txnId ? { ...t, status: "approved" } : t
+    );
+    setSubmittedTxns(updatedTxns);
+
+    // Grant Pro to the specific user account
+    const updatedUsers = registeredUsersList.map((u) =>
+      u.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()
+        ? { ...u, isProUser: true }
+        : u
+    );
+    setRegisteredUsersList(updatedUsers);
+
+    // If the approved user happens to be the currently logged-in account
+    if (currentUser?.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()) {
+      setCurrentUser((prev) => ({ ...prev, isProUser: true }));
+    }
+
+    alert(`Transaction approved! Pro access unlocked for: ${targetTxn.userEmail}`);
   };
 
   const handleAdminRevoke = (txnId) => {
-    const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "rejected" } : t));
-    setSubmittedTxns(updated);
-    setIsPro(false);
-    setVerificationStatus("none");
-    alert("Subscription revoked.");
+    const targetTxn = submittedTxns.find((t) => t.id === txnId);
+    if (!targetTxn) return;
+
+    const updatedTxns = submittedTxns.map((t) =>
+      t.id === txnId ? { ...t, status: "rejected" } : t
+    );
+    setSubmittedTxns(updatedTxns);
+
+    const updatedUsers = registeredUsersList.map((u) =>
+      u.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()
+        ? { ...u, isProUser: false }
+        : u
+    );
+    setRegisteredUsersList(updatedUsers);
+
+    if (currentUser?.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()) {
+      setCurrentUser((prev) => ({ ...prev, isProUser: false }));
+    }
+
+    alert(`Pro access revoked for: ${targetTxn.userEmail}`);
   };
 
   const handleAdminGrantUserPro = (userEmail) => {
+    const target = registeredUsersList.find(
+      (u) => u.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()
+    );
+    const nextState = !target?.isProUser;
+
     const updated = registeredUsersList.map((u) =>
-      u.emailOrPhone === userEmail ? { ...u, isProUser: !u.isProUser } : u
+      u.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()
+        ? { ...u, isProUser: nextState }
+        : u
     );
     setRegisteredUsersList(updated);
-    alert(`Pro status updated for: ${userEmail}`);
+
+    if (currentUser?.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()) {
+      setCurrentUser((prev) => ({ ...prev, isProUser: nextState }));
+    }
+
+    alert(`Pro status set to ${nextState ? "ACTIVE" : "INACTIVE"} for: ${userEmail}`);
   };
 
   const handleResetSystemLimits = () => {
@@ -503,11 +575,13 @@ export default function BizNavigatorApp() {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
     const isAdmin = currentUser.role === "admin";
-    if (!isAdmin && !isPro && evaluationsCount >= FREE_USAGE_LIMIT) {
+
+    // SECURITY CHECK: If user is not Pro, strictly cap at FREE_USAGE_LIMIT
+    if (!isAdmin && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
     }
-    if (!isAdmin && isPro && proDailyCount >= PRO_DAILY_LIMIT) {
+    if (!isAdmin && isUserPro && proDailyCount >= PRO_DAILY_LIMIT) {
       alert("Daily Pro limit (50 requests/day) reached. Resets in 24 hours.");
       throw new Error("PRO_LIMIT_REACHED");
     }
@@ -528,8 +602,11 @@ export default function BizNavigatorApp() {
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!isAdmin) {
-          if (isPro) setProDailyCount((p) => p + 1);
-          else setEvaluationsCount((p) => p + 1);
+          if (isUserPro) {
+            setProDailyCount((p) => p + 1);
+          } else {
+            setEvaluationsCount((p) => p + 1);
+          }
         }
         return textResponse;
       } catch (err) {
@@ -539,8 +616,11 @@ export default function BizNavigatorApp() {
 
     await new Promise((r) => setTimeout(r, 1000));
     if (!isAdmin) {
-      if (isPro) setProDailyCount((p) => p + 1);
-      else setEvaluationsCount((p) => p + 1);
+      if (isUserPro) {
+        setProDailyCount((p) => p + 1);
+      } else {
+        setEvaluationsCount((p) => p + 1);
+      }
     }
     return fallbackData;
   };
@@ -945,7 +1025,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const completedMilestones = milestones.filter((m) => m.completed).length;
   const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
-  // Format countdown minutes & seconds (e.g. 04:59)
   const formatCountdown = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -974,7 +1053,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
-            {/* Top Navigation Tabs: Sign In | Register | Forgot Password 🔑 | Admin Login 🛡️ */}
+            {/* Top Navigation Tabs */}
             <div className="grid grid-cols-4 border-b border-slate-800 pb-3 gap-1">
               <button
                 onClick={() => { setAuthMode("login"); setAuthError(""); setAuthSuccessNotice(""); }}
@@ -1015,12 +1094,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <Crown className="w-3 h-3" />
+                <Crown className="w-3.5 h-3.5" />
                 <span>Admin 🛡️</span>
               </button>
             </div>
 
-            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -1028,7 +1106,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* Success Notification */}
             {authSuccessNotice && (
               <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
                 <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
@@ -1036,9 +1113,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* ============================================================== */}
-            {/* VIEW A: REAL EMAIL OTP FORGOT PASSWORD RECOVERY FLOW          */}
-            {/* ============================================================== */}
+            {/* VIEW A: REAL EMAIL OTP FORGOT PASSWORD RECOVERY FLOW */}
             {authMode === "forgot" ? (
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
@@ -1049,8 +1124,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     </h3>
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {otpStep === 1
-                        ? "Step 1 of 2: Generate & dispatch 6-digit security code to email"
-                        : "Step 2 of 2: Verify OTP & configure new password"}
+                        ? "Step 1: Dispatch 6-digit verification code to email"
+                        : "Step 2: Enter code & set new password"}
                     </p>
                   </div>
                   <button
@@ -1063,7 +1138,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </div>
 
                 {otpStep === 1 ? (
-                  /* Step 1: Input Email and Send Real OTP */
                   <form onSubmit={handleForgotRequestOtp} className="space-y-4 text-xs">
                     <div>
                       <label className="block text-slate-300 font-semibold mb-1">
@@ -1101,7 +1175,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     </button>
                   </form>
                 ) : (
-                  /* Step 2: Input OTP & New Password */
                   <form onSubmit={handleForgotVerifyAndReset} className="space-y-3.5 text-xs">
                     <div>
                       <div className="flex items-center justify-between mb-1">
@@ -1163,7 +1236,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        <span>{resendCooldown > 0 ? `Resend OTP in (${resendCooldown}s)` : "Resend OTP"}</span>
+                        <span>{resendCooldown > 0 ? `Resend in (${resendCooldown}s)` : "Resend OTP"}</span>
                       </button>
 
                       <button
@@ -1185,9 +1258,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </div>
             ) : (
-              /* ============================================================== */
-              /* VIEW B: STANDARD LOGIN / SIGNUP / ADMIN FORM                   */
-              /* ============================================================== */
+              /* VIEW B: STANDARD LOGIN / SIGNUP / ADMIN FORM */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
@@ -1331,12 +1402,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             )}
 
             <div className="text-[10px] text-slate-500 text-center space-y-1">
-              <p>🔒 Strictly protected SME platform. Real Email OTP verification active.</p>
+              <p>🔒 Strictly protected SME platform. Manual login authentication required.</p>
             </div>
           </div>
         </div>
 
-        {/* MODAL: LIVE EMAILJS CONFIGURATION (OPTIONAL FOR PRODUCTION) */}
+        {/* MODAL: LIVE EMAILJS CONFIGURATION */}
         {showEmailConfigModal && (
           <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 relative shadow-2xl text-xs">
@@ -1353,7 +1424,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
 
               <p className="text-slate-400 text-[11px] leading-relaxed">
-                To send live OTP emails directly from the browser to real user inboxes without a backend server, you can configure your free EmailJS account credentials below.
+                Connect your free EmailJS account to send live OTP emails directly from the client without a backend.
               </p>
 
               <div className="space-y-3">
@@ -1406,6 +1477,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     );
   }
 
+  // ==============================================================
+  // MAIN AUTHENTICATED APPLICATION SHELL
+  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       {/* Top Header */}
@@ -1426,6 +1500,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
+            {/* Admin Badge & Dedicated Administrative Works Button */}
             {currentUser.role === "admin" ? (
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
@@ -1441,15 +1516,17 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span>Administrative Works ⚙️</span>
                 </button>
               </div>
-            ) : isPro ? (
+            ) : isUserPro ? (
+              /* User has verified Pro status */
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT})</span>
               </div>
             ) : (
+              /* Regular Free User */
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-slate-400 hidden sm:inline">
-                  Free: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
+                  Free checks: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
                 </span>
                 <button
                   onClick={() => setShowPaywallModal(true)}
@@ -1465,7 +1542,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <div className={`w-6 h-6 rounded-full font-black text-xs flex items-center justify-center ${
                 currentUser.role === "admin" ? "bg-rose-500 text-white" : "bg-amber-500 text-slate-950"
               }`}>
-                {currentUser.name.charAt(0).toUpperCase()}
+                {currentUser.name?.charAt(0).toUpperCase()}
               </div>
               <div className="text-left hidden md:block">
                 <div className="text-xs font-bold text-slate-200 leading-none">{currentUser.name}</div>
@@ -1510,6 +1587,20 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           })}
         </div>
       </header>
+
+      {/* Pending Verification Notice Banner */}
+      {userPendingTxn && !isUserPro && (
+        <div className="bg-amber-950/40 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-300 flex items-center justify-between">
+          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
+            <span className="flex items-center space-x-2">
+              <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
+              <span>
+                Payment Verification Pending: Payment ID <strong>{userPendingTxn.paymentId}</strong> is awaiting Administrator confirmation. Pro features will unlock upon approval.
+              </span>
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
@@ -2217,10 +2308,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 BizNavigator Pro Upgrade
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Unlock Unlimited AI Evaluations & Launch Tools
+                Free limit reached (5/5). Upgrade to Pro for unlimited evaluations.
               </h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification.
+                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification by the Administrator.
               </p>
             </div>
 
@@ -2357,12 +2448,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 {isVerifying ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Verifying with Razorpay...</span>
+                    <span>Submitting for Verification...</span>
                   </>
                 ) : (
                   <>
                     <Check className="w-4 h-4" />
-                    <span>Verify & Activate Subscription</span>
+                    <span>Submit for Admin Approval</span>
                   </>
                 )}
               </button>
@@ -2455,7 +2546,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                             className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
                               txn.status === "approved"
                                 ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
-                                : "bg-rose-950 text-rose-400 border border-rose-500/30"
+                                : txn.status === "rejected"
+                                ? "bg-rose-950 text-rose-400 border border-rose-500/30"
+                                : "bg-amber-950 text-amber-400 border border-amber-500/30"
                             }`}
                           >
                             {txn.status}
