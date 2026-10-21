@@ -1,15 +1,9 @@
 
-//Here is the complete updated code.
+//Here is the corrected and complete code. The **1-click admin sign-in button has been completely deleted** from the login screen. 
 
-//### Changes Made:
-//1. **Removed the Quick Direct Login Link**: The 1-click admin bypass button on the login screen has been completely removed. Admin login now strictly requires entering the credentials (`admin@biznavigator.in` and password `admin123`) through the form.
-//2. **Added Administrative Works Console Button**: Inside the admin account, a dedicated **"⚙️ Administrative Works"** button has been added in the top header and dashboard. Clicking it opens a centralized **Admin Command Center** with controls to:
- //  - **Approve / Reject Razorpay Submissions** in real time.
-  // - **Grant / Revoke Pro Access** for any user.
-//   - **Reset Daily System Quotas & API Limits**.
- //  - **View Platform Financial Analytics & User Directories**.
+//To access the admin account now, you must **manually type the credentials** into the form. Once logged in, the **"Administrative Works ⚙️"** button inside the admin header grants full access to all system and subscription operations.
 
-
+//```jsx
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -49,9 +43,7 @@ import {
   Crown,
   Users,
   Settings,
-  DollarSign,
-  Layers,
-  Key
+  Layers
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
@@ -159,21 +151,6 @@ export default function BizNavigatorApp() {
   // ==========================================
   // AUTHENTICATION LOGIC (STRICT FORM SUBMISSION ONLY)
   // ==========================================
-  const executeAdminLogin = () => {
-    const adminUser = {
-      name: "Master Administrator",
-      emailOrPhone: ADMIN_EMAIL,
-      businessName: "BizNavigator Headquarters",
-      role: "admin",
-      joinedAt: new Date().toLocaleDateString("en-IN")
-    };
-    setCurrentUser(adminUser);
-    setIsPro(true);
-    setAuthError("");
-    setAuthPassword("");
-    alert("Welcome Administrator! Master administrative works console unlocked.");
-  };
-
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     setAuthError("");
@@ -181,14 +158,25 @@ export default function BizNavigatorApp() {
     const inputAccount = authEmailOrPhone.trim().toLowerCase();
     const inputPass = authPassword.trim();
 
-    // 1. STRICT MANUAL ADMIN LOGIN (From 'admin' tab or standard login with admin email + secret)
+    // 1. STRICT MANUAL ADMIN LOGIN (User must manually type credentials)
     if (
       (authMode === "admin" && inputPass === ADMIN_SECRET_KEY) ||
       (authMode === "login" &&
         (inputAccount === "admin" || inputAccount === ADMIN_EMAIL) &&
         inputPass === ADMIN_SECRET_KEY)
     ) {
-      executeAdminLogin();
+      const adminUser = {
+        name: "Master Administrator",
+        emailOrPhone: ADMIN_EMAIL,
+        businessName: "BizNavigator Headquarters",
+        role: "admin",
+        joinedAt: new Date().toLocaleDateString("en-IN")
+      };
+      setCurrentUser(adminUser);
+      setIsPro(true);
+      setAuthError("");
+      setAuthPassword("");
+      alert("Authenticated as Administrator. Administrative console unlocked.");
       return;
     }
 
@@ -1001,7 +989,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
-            {/* Admin Badge or Pro Status */}
+            {/* Admin Badge & Dedicated Administrative Works Button */}
             {currentUser.role === "admin" ? (
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
@@ -1009,7 +997,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="hidden sm:inline">ADMINISTRATOR</span>
                 </div>
 
-                {/* DEDICATED BUTTON INSIDE ADMIN ACCOUNT FOR ALL ADMINISTRATIVE WORKS */}
+                {/* THE ONLY ADMINISTRATIVE WORKS BUTTON INSIDE ADMIN ACCOUNT */}
                 <button
                   onClick={() => setShowAdminConsoleModal(true)}
                   className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 transition transform hover:scale-105"
@@ -1949,7 +1937,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       )}
 
       {/* ============================================================== */}
-      {/* EXCLUSIVE ADMIN WORKS CONSOLE (MODAL TRIGGERED VIA BUTTON)     */}
+      {/* EXCLUSIVE ADMIN WORKS CONSOLE (TRIGGERED VIA BUTTON)           */}
       {/* ============================================================== */}
       {showAdminConsoleModal && currentUser?.role === "admin" && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -1974,7 +1962,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       MASTER ADMIN
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400">Manage all subscriptions, user access, and system quotas.</p>
+                  <p className="text-xs text-slate-400">Manage subscriptions, audit payments, and configure system rules.</p>
                 </div>
               </div>
             </div>
