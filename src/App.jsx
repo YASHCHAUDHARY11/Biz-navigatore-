@@ -34,13 +34,16 @@ import {
   Check,
   AlertTriangle,
   ShieldAlert,
-  Crown
+  Crown,
+  Users,
+  DollarSign
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
+const ADMIN_EMAIL = "admin@biznavigator.in";
 const ADMIN_SECRET_KEY = "admin123";
 
 const PAYMENT_LINKS = {
@@ -80,12 +83,28 @@ export default function BizNavigatorApp() {
 
   const [submittedTxns, setSubmittedTxns] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}all_txns`);
+    return cached
+      ? JSON.parse(cached)
+      : [
+          {
+            id: "txn_demo_1",
+            paymentId: "pay_Qz84kJ928xLa90",
+            userName: "Ramesh Trading Co",
+            userEmail: "ramesh@trade.in",
+            plan: "Monthly Pro (₹249)",
+            status: "approved",
+            submittedAt: "Yesterday, 4:30 PM"
+          }
+        ];
+  });
+
+  const [registeredUsersList, setRegisteredUsersList] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}registered_users`);
     return cached ? JSON.parse(cached) : [];
   });
 
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [showAdminModal, setShowAdminModal] = useState(false);
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
 
   const [inputPaymentId, setInputPaymentId] = useState("");
@@ -112,51 +131,68 @@ export default function BizNavigatorApp() {
     localStorage.setItem(`${STORAGE_PREFIX}eval_count`, evaluationsCount);
     localStorage.setItem(`${STORAGE_PREFIX}pro_count`, proDailyCount);
     localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(submittedTxns));
+    localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(registeredUsersList));
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
     } else {
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
     }
-  }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns]);
+  }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns, registeredUsersList]);
 
-  // Auth Handler
+  // ==========================================
+  // AUTHENTICATION LOGIC (USER + ADMIN)
+  // ==========================================
+  const executeAdminLogin = () => {
+    const adminUser = {
+      name: "Master Administrator",
+      emailOrPhone: ADMIN_EMAIL,
+      businessName: "BizNavigator Headquarters",
+      role: "admin",
+      joinedAt: new Date().toLocaleDateString("en-IN")
+    };
+    setCurrentUser(adminUser);
+    setIsPro(true);
+    setAuthError("");
+    setAuthPassword("");
+    setActiveTab("admin-hub"); // Automatically switch to Admin Control Hub
+    alert("Welcome Administrator! Master controls and payment audit panel unlocked.");
+  };
+
   const handleAuthSubmit = (e) => {
     e.preventDefault();
     setAuthError("");
 
-    if (authMode === "admin") {
-      if (authPassword.trim() === ADMIN_SECRET_KEY) {
-        const adminUser = {
-          name: "Master Admin",
-          emailOrPhone: "admin@biznavigator.in",
-          businessName: "BizNavigator HQ",
-          role: "admin",
-          joinedAt: new Date().toLocaleDateString("en-IN")
-        };
-        setCurrentUser(adminUser);
-        setIsPro(true);
-        setAuthPassword("");
-        alert("Authenticated as Administrator. Master controls unlocked!");
-        return;
-      } else {
-        setAuthError("Invalid Admin Secret Key. Access Denied.");
-        return;
-      }
-    }
+    const inputAccount = authEmailOrPhone.trim().toLowerCase();
+    const inputPass = authPassword.trim();
 
-    if (!authEmailOrPhone.trim() || !authPassword.trim()) {
-      setAuthError("Please fill in all mandatory fields.");
+    // 1. DIRECT ADMIN LOGIN RECOGNITION (Works in BOTH 'login' and 'admin' tabs)
+    if (
+      (authMode === "admin" && inputPass === ADMIN_SECRET_KEY) ||
+      (authMode === "login" &&
+        (inputAccount === "admin" || inputAccount === ADMIN_EMAIL) &&
+        inputPass === ADMIN_SECRET_KEY)
+    ) {
+      executeAdminLogin();
       return;
     }
 
-    const existingUsers = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}registered_users`) || "[]");
+    if (authMode === "admin") {
+      setAuthError("Invalid Admin Secret Key. Access Denied.");
+      return;
+    }
+
+    // 2. REGULAR USER SIGNUP & LOGIN
+    if (!inputAccount || !inputPass) {
+      setAuthError("Please fill in all mandatory fields.");
+      return;
+    }
 
     if (authMode === "signup") {
       if (!authFullName.trim()) {
         setAuthError("Please provide your full name.");
         return;
       }
-      const userExists = existingUsers.some((u) => u.emailOrPhone === authEmailOrPhone.trim());
+      const userExists = registeredUsersList.some((u) => u.emailOrPhone.toLowerCase() === inputAccount);
       if (userExists) {
         setAuthError("An account with this email/phone already exists. Please login.");
         return;
@@ -168,28 +204,33 @@ export default function BizNavigatorApp() {
         businessName: authBusinessName.trim() || "My Indian Enterprise",
         password: authPassword,
         role: "user",
+        isProUser: false,
         joinedAt: new Date().toLocaleDateString("en-IN")
       };
 
-      existingUsers.push(newUser);
-      localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(existingUsers));
+      const updatedUsers = [...registeredUsersList, newUser];
+      setRegisteredUsersList(updatedUsers);
       setCurrentUser(newUser);
       setAuthPassword("");
     } else {
-      const user = existingUsers.find(
-        (u) => u.emailOrPhone === authEmailOrPhone.trim() && u.password === authPassword
+      // Normal User Login
+      const user = registeredUsersList.find(
+        (u) => u.emailOrPhone.toLowerCase() === inputAccount && u.password === inputPass
       );
 
       if (!user) {
-        if (existingUsers.length === 0) {
+        // Fallback demo account for first-time setup
+        if (registeredUsersList.length === 0) {
           const defaultUser = {
             name: authEmailOrPhone.split("@")[0] || "Entrepreneur",
             emailOrPhone: authEmailOrPhone.trim(),
             businessName: "Indian SME Enterprise",
             role: "user",
+            isProUser: false,
             joinedAt: new Date().toLocaleDateString("en-IN")
           };
           setCurrentUser(defaultUser);
+          setRegisteredUsersList([defaultUser]);
           setAuthPassword("");
           return;
         }
@@ -198,6 +239,7 @@ export default function BizNavigatorApp() {
       }
 
       setCurrentUser(user);
+      if (user.isProUser) setIsPro(true);
       setAuthPassword("");
     }
   };
@@ -206,10 +248,13 @@ export default function BizNavigatorApp() {
     if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
       setCurrentUser(null);
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
+      setActiveTab("idea-finder");
     }
   };
 
-  // Payment Verification Handlers
+  // ==========================================
+  // STRICT PAYMENT VERIFICATION LOGIC
+  // ==========================================
   const handleInitiatePayment = (url, planName) => {
     setSelectedPlanForVerification(planName);
     window.open(url, "_blank", "noopener,noreferrer");
@@ -264,6 +309,7 @@ export default function BizNavigatorApp() {
     }, 1400);
   };
 
+  // Admin Controls
   const handleAdminApprove = (txnId) => {
     const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "approved" } : t));
     setSubmittedTxns(updated);
@@ -280,7 +326,15 @@ export default function BizNavigatorApp() {
     alert("Subscription revoked.");
   };
 
-  // Helper: AI Calling
+  const handleAdminGrantUserPro = (userEmail) => {
+    const updated = registeredUsersList.map((u) =>
+      u.emailOrPhone === userEmail ? { ...u, isProUser: !u.isProUser } : u
+    );
+    setRegisteredUsersList(updated);
+    alert(`Pro status toggled for user: ${userEmail}`);
+  };
+
+  // Helper: AI Calling with strict auth and usage checks
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
@@ -308,7 +362,7 @@ export default function BizNavigatorApp() {
         );
         const data = await res.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        
+
         if (!isAdmin) {
           if (isPro) setProDailyCount((p) => p + 1);
           else setEvaluationsCount((p) => p + 1);
@@ -713,6 +767,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     }
   };
 
+  // Math Computations
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
   const totalOut = ledgerEntries.filter((e) => e.type === "out").reduce((s, i) => s + Number(i.amount), 0);
   const netLedgerBalance = totalIn - totalOut;
@@ -746,6 +801,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+            {/* Top Auth Tabs: Sign In | Register | Admin 🛡️ */}
             <div className="flex border-b border-slate-800 pb-3">
               <button
                 onClick={() => { setAuthMode("login"); setAuthError(""); }}
@@ -805,7 +861,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     />
                   </div>
                   <span className="text-[10px] text-slate-500 block mt-1">
-                    Master control key to access transaction approvals & unlimited evaluations.
+                    Default key: <code className="text-amber-400 font-mono">admin123</code>. Grants master audit and subscription controls.
                   </span>
                 </div>
               ) : (
@@ -844,7 +900,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   )}
 
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Email or 10-Digit Mobile Number</label>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Email or 10-Digit Mobile Number
+                    </label>
                     <div className="relative">
                       <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                       <input
@@ -891,9 +949,21 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </button>
             </form>
 
+            {/* ⚡ ONE-CLICK QUICK ADMIN DEMO BUTTON */}
+            <div className="pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={executeAdminLogin}
+                className="w-full bg-slate-800 hover:bg-slate-700 border border-rose-500/30 text-rose-300 font-semibold py-2 rounded-xl text-[11px] flex items-center justify-center space-x-1.5 transition"
+              >
+                <Crown className="w-3.5 h-3.5 text-rose-400" />
+                <span>⚡ Instant One-Click Admin Sign-In</span>
+              </button>
+            </div>
+
             <div className="text-[11px] text-slate-500 text-center space-y-1">
               <p>🔒 Strictly protected SME platform. Guest browsing is disabled.</p>
-              <p>Your business roadmaps and financial ledger are safely encrypted.</p>
+              <p>Admin Login: Use <strong>admin@biznavigator.in</strong> and <strong>admin123</strong>.</p>
             </div>
           </div>
         </div>
@@ -924,7 +994,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             {currentUser.role === "admin" ? (
               <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
                 <Crown className="w-3.5 h-3.5" />
-                <span>ADMINISTRATOR (Unlimited)</span>
+                <span>ADMINISTRATOR</span>
               </div>
             ) : isPro ? (
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
@@ -963,19 +1033,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <LogOut className="w-3.5 h-3.5" />
               </button>
             </div>
-
-            <button
-              onClick={() => setShowAdminModal(true)}
-              title="Admin Payment Audit"
-              className={`p-1.5 rounded-xl border text-xs flex items-center space-x-1 ${
-                currentUser.role === "admin"
-                  ? "border-rose-500/40 bg-rose-950/40 text-rose-400"
-                  : "border-slate-700 text-slate-400 hover:text-amber-400"
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              {currentUser.role === "admin" && <span className="text-[10px] font-bold hidden sm:inline">Audit</span>}
-            </button>
           </div>
         </div>
 
@@ -986,7 +1043,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
             { id: "roadmap", label: `Execution Roadmap (${progressPercent}%)`, icon: CheckCircle2 },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
-            { id: "market", label: "Live AI Market Radar", icon: FileText }
+            { id: "market", label: "Live AI Market Radar", icon: FileText },
+            ...(currentUser.role === "admin"
+              ? [{ id: "admin-hub", label: "Admin Control Hub 🛡️", icon: Crown, highlight: true }]
+              : [])
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -996,7 +1056,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center space-x-2 py-2.5 px-4 font-medium transition-all border-b-2 whitespace-nowrap ${
                   isActive
-                    ? "border-amber-500 text-amber-400 bg-amber-500/5 font-bold"
+                    ? tab.highlight
+                      ? "border-rose-500 text-rose-400 bg-rose-500/10 font-bold"
+                      : "border-amber-500 text-amber-400 bg-amber-500/5 font-bold"
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
@@ -1010,6 +1072,167 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
+        {/* ============================================================== */}
+        {/* TAB 0: ADMIN CONTROL HUB (EXCLUSIVE FOR ADMINISTRATOR)        */}
+        {/* ============================================================== */}
+        {activeTab === "admin-hub" && currentUser.role === "admin" && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
+              <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
+                <Crown className="w-4 h-4" />
+                <span>Executive Admin Console</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
+                BizNavigator Administration & Payment Verification Center
+              </h1>
+              <p className="text-xs text-slate-300 mt-1 max-w-2xl">
+                Verify customer Razorpay transactions, inspect user growth, and grant manual Pro upgrades.
+              </p>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Total Users</span>
+                  <span className="text-2xl font-black text-slate-100 mt-1 block">
+                    {registeredUsersList.length + 1}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Approved Transactions</span>
+                  <span className="text-2xl font-black text-emerald-400 mt-1 block">
+                    {submittedTxns.filter((t) => t.status === "approved").length}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-emerald-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Est. Pro Revenue</span>
+                  <span className="text-2xl font-black text-amber-400 mt-1 block">
+                    ₹{submittedTxns.filter((t) => t.status === "approved").length * 249}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center">
+                  <IndianRupee className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Transaction Verification Panel */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-400" />
+                  <span>Razorpay Payment Verifications & Audit Log</span>
+                </h3>
+                <span className="text-xs text-slate-400">
+                  {submittedTxns.length} Total Submissions
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {submittedTxns.length === 0 ? (
+                  <div className="text-center py-8 text-slate-500 text-xs">
+                    No transactions submitted yet.
+                  </div>
+                ) : (
+                  submittedTxns.map((txn) => (
+                    <div
+                      key={txn.id}
+                      className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-bold text-amber-400">{txn.paymentId}</span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                              txn.status === "approved"
+                                ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
+                                : "bg-rose-950 text-rose-400 border border-rose-500/30"
+                            }`}
+                          >
+                            {txn.status}
+                          </span>
+                        </div>
+                        <div className="text-slate-400 mt-1">
+                          User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
+                        </div>
+                        <div className="text-slate-500 text-[10px]">{txn.submittedAt}</div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        {txn.status !== "approved" ? (
+                          <button
+                            onClick={() => handleAdminApprove(txn.id)}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs"
+                          >
+                            Approve
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleAdminRevoke(txn.id)}
+                            className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-xs"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* User Directory */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2 border-b border-slate-800 pb-3">
+                <Users className="w-5 h-5 text-indigo-400" />
+                <span>Registered SME User Accounts</span>
+              </h3>
+
+              <div className="space-y-2 text-xs">
+                {registeredUsersList.length === 0 ? (
+                  <div className="text-slate-500 text-center py-6">No registered users yet.</div>
+                ) : (
+                  registeredUsersList.map((usr, i) => (
+                    <div
+                      key={i}
+                      className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-200">{usr.name}</span>
+                        <span className="text-slate-500 ml-2">({usr.emailOrPhone})</span>
+                        <span className="text-[10px] text-amber-400 block">{usr.businessName}</span>
+                      </div>
+                      <button
+                        onClick={() => handleAdminGrantUserPro(usr.emailOrPhone)}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                          usr.isProUser
+                            ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+                        }`}
+                      >
+                        {usr.isProUser ? "Active Pro (Revoke)" : "Grant Pro"}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* TAB 1: AI IDEA MATCHER */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
@@ -1864,81 +2087,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </button>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* ADMIN AUDIT & APPROVAL PANEL */}
-      {showAdminModal && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full space-y-4 relative shadow-2xl max-h-[85vh] flex flex-col">
-            <button
-              onClick={() => setShowAdminModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-              <ShieldCheck className="w-5 h-5 text-amber-400" />
-              <h3 className="font-bold text-slate-100 text-base">Payment Verification Audit Panel</h3>
-            </div>
-
-            <div className="text-xs text-slate-400">
-              Review user payment submissions and verify them against your official Razorpay Dashboard.
-            </div>
-
-            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
-              {submittedTxns.length === 0 ? (
-                <div className="text-center py-10 text-slate-500">
-                  No payment verification submissions yet.
-                </div>
-              ) : (
-                submittedTxns.map((txn) => (
-                  <div
-                    key={txn.id}
-                    className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
-                  >
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-bold text-amber-400">{txn.paymentId}</span>
-                        <span
-                          className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
-                            txn.status === "approved"
-                              ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
-                              : "bg-rose-950 text-rose-400 border border-rose-500/30"
-                          }`}
-                        >
-                          {txn.status}
-                        </span>
-                      </div>
-                      <div className="text-slate-400 text-[11px] mt-1">
-                        User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
-                      </div>
-                      <div className="text-slate-500 text-[10px]">{txn.submittedAt}</div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      {txn.status !== "approved" ? (
-                        <button
-                          onClick={() => handleAdminApprove(txn.id)}
-                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-[11px]"
-                        >
-                          Approve Pro
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => handleAdminRevoke(txn.id)}
-                          className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-[11px]"
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
           </div>
         </div>
       )}
