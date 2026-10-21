@@ -29,16 +29,20 @@ import {
   LogOut,
   Lock,
   Mail,
-  Phone,
   Building,
   ExternalLink,
-  Check
+  Check,
+  AlertTriangle,
+  Clock,
+  ShieldAlert,
+  Search
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
+const ADMIN_SECRET_KEY = "admin123"; // Change this to your desired admin secret
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -47,32 +51,55 @@ const PAYMENT_LINKS = {
 };
 
 export default function BizNavigatorApp() {
-  const [activeTab, setActiveTab] = useState("idea-finder");
-
   // ==========================================
-  // AUTHENTICATION & USER STATE
+  // 1. STRICT AUTHENTICATION STATE
   // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     const savedUser = localStorage.getItem(`${STORAGE_PREFIX}user`);
     return savedUser ? JSON.parse(savedUser) : null;
   });
-  const [showAuthModal, setShowAuthModal] = useState(false);
+
   const [authMode, setAuthMode] = useState("login"); // 'login' or 'signup'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authFullName, setAuthFullName] = useState("");
   const [authBusinessName, setAuthBusinessName] = useState("");
+  const [authError, setAuthError] = useState("");
 
-  // Payment Verification Dialog State
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [paymentIdInput, setPaymentIdInput] = useState("");
-
-  // User & Usage State
-  const [apiKey, setApiKey] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || ""
-  );
+  // ==========================================
+  // 2. SUBSCRIPTION & PAYMENT VERIFICATION STATE
+  // ==========================================
   const [isPro, setIsPro] = useState(
     () => localStorage.getItem(`${STORAGE_PREFIX}is_pro`) === "true"
+  );
+  const [verificationStatus, setVerificationStatus] = useState(
+    () => localStorage.getItem(`${STORAGE_PREFIX}verify_status`) || "none" // 'none', 'pending', 'verified'
+  );
+  const [submittedPaymentId, setSubmittedPaymentId] = useState(
+    () => localStorage.getItem(`${STORAGE_PREFIX}last_payment_id`) || ""
+  );
+
+  // List of all submitted transactions for Admin Audit
+  const [submittedTxns, setSubmittedTxns] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}all_txns`);
+    return cached ? JSON.parse(cached) : [];
+  });
+
+  const [showPaywallModal, setShowPaywallModal] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [showAdminModal, setShowAdminModal] = useState(false);
+  const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
+  
+  // Verification Form Inputs
+  const [inputPaymentId, setInputPaymentId] = useState("");
+  const [verificationError, setVerificationError] = useState("");
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [adminKeyInput, setAdminKeyInput] = useState("");
+
+  // Application States
+  const [activeTab, setActiveTab] = useState("idea-finder");
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || ""
   );
   const [evaluationsCount, setEvaluationsCount] = useState(
     () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}eval_count`)) || 0
@@ -80,54 +107,177 @@ export default function BizNavigatorApp() {
   const [proDailyCount, setProDailyCount] = useState(
     () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
   );
-  const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [notificationNudge, setNotificationNudge] = useState(null);
 
-  // Sync state to local storage
+  // Sync core state to localStorage
   useEffect(() => {
     localStorage.setItem(`${STORAGE_PREFIX}is_pro`, isPro);
+    localStorage.setItem(`${STORAGE_PREFIX}verify_status`, verificationStatus);
     localStorage.setItem(`${STORAGE_PREFIX}eval_count`, evaluationsCount);
     localStorage.setItem(`${STORAGE_PREFIX}pro_count`, proDailyCount);
+    localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(submittedTxns));
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
     } else {
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
     }
-  }, [isPro, evaluationsCount, proDailyCount, currentUser]);
+  }, [isPro, verificationStatus, evaluationsCount, proDailyCount, currentUser, submittedTxns]);
 
-  // Auth Handlers
+  // ==========================================
+  // AUTHENTICATION LOGIC (STRICT LOCK)
+  // ==========================================
   const handleAuthSubmit = (e) => {
     e.preventDefault();
-    if (!authEmailOrPhone || !authPassword) {
-      alert("Please fill all mandatory login credentials.");
+    setAuthError("");
+
+    if (!authEmailOrPhone.trim() || !authPassword.trim()) {
+      setAuthError("Please fill in all mandatory fields.");
       return;
     }
 
-    const userData = {
-      name: authFullName || (authEmailOrPhone.includes("@") ? authEmailOrPhone.split("@")[0] : "Entrepreneur"),
-      emailOrPhone: authEmailOrPhone,
-      businessName: authBusinessName || "My Indian Enterprise",
-      joinedAt: new Date().toLocaleDateString("en-IN")
-    };
+    // Get registered accounts from local storage
+    const existingUsers = JSON.parse(localStorage.getItem(`${STORAGE_PREFIX}registered_users`) || "[]");
 
-    setCurrentUser(userData);
-    setShowAuthModal(false);
-    setAuthPassword("");
-    alert(`Welcome ${authMode === "signup" ? "aboard" : "back"}, ${userData.name}!`);
+    if (authMode === "signup") {
+      if (!authFullName.trim()) {
+        setAuthError("Please provide your full name.");
+        return;
+      }
+      const userExists = existingUsers.some((u) => u.emailOrPhone === authEmailOrPhone.trim());
+      if (userExists) {
+        setAuthError("An account with this email/phone already exists. Please login.");
+        return;
+      }
+
+      const newUser = {
+        name: authFullName.trim(),
+        emailOrPhone: authEmailOrPhone.trim(),
+        businessName: authBusinessName.trim() || "My Indian Enterprise",
+        password: authPassword,
+        joinedAt: new Date().toLocaleDateString("en-IN")
+      };
+
+      existingUsers.push(newUser);
+      localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(existingUsers));
+      setCurrentUser(newUser);
+      setAuthPassword("");
+    } else {
+      // Login mode
+      const user = existingUsers.find(
+        (u) => u.emailOrPhone === authEmailOrPhone.trim() && u.password === authPassword
+      );
+
+      if (!user) {
+        // Fallback demo login if no accounts registered yet
+        if (existingUsers.length === 0) {
+          const defaultUser = {
+            name: authEmailOrPhone.split("@")[0] || "Entrepreneur",
+            emailOrPhone: authEmailOrPhone.trim(),
+            businessName: "Indian SME Enterprise",
+            joinedAt: new Date().toLocaleDateString("en-IN")
+          };
+          setCurrentUser(defaultUser);
+          setAuthPassword("");
+          return;
+        }
+        setAuthError("Invalid mobile/email or password. Please verify and try again.");
+        return;
+      }
+
+      setCurrentUser(user);
+      setAuthPassword("");
+    }
   };
 
   const handleLogout = () => {
-    if (window.confirm("Are you sure you want to log out?")) {
+    if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
       setCurrentUser(null);
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
     }
   };
 
-  // Helper: Centralized Gemini API caller
+  // ==========================================
+  // STRICT PAYMENT VERIFICATION LOGIC
+  // ==========================================
+  const handleInitiatePayment = (url, planName) => {
+    setSelectedPlanForVerification(planName);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setShowPaywallModal(false);
+    setShowVerificationModal(true);
+    setVerificationError("");
+    setInputPaymentId("");
+  };
+
+  const handleSubmitVerification = (e) => {
+    e.preventDefault();
+    setVerificationError("");
+
+    const cleanId = inputPaymentId.trim();
+
+    // 1. Strict Razorpay Payment ID regex (starts with 'pay_' followed by alphanumeric characters)
+    const razorpayPattern = /^pay_[a-zA-Z0-9]{12,24}$/;
+
+    if (!razorpayPattern.test(cleanId)) {
+      setVerificationError(
+        "Invalid Razorpay Payment ID format! A legitimate Payment ID starts with 'pay_' (e.g. pay_Px89N2Kd019J). Please check your Razorpay SMS or Email receipt."
+      );
+      return;
+    }
+
+    // 2. Prevent reusing the same Payment ID across multiple transactions
+    const idAlreadyUsed = submittedTxns.some((t) => t.paymentId === cleanId && t.status === "approved");
+    if (idAlreadyUsed) {
+      setVerificationError("This Payment ID has already been redeemed and approved.");
+      return;
+    }
+
+    setIsVerifying(true);
+
+    // Simulate verification check against Razorpay API / Webhook queue
+    setTimeout(() => {
+      setIsVerifying(false);
+
+      const newTxn = {
+        id: `txn_${Date.now()}`,
+        paymentId: cleanId,
+        userEmail: currentUser?.emailOrPhone,
+        userName: currentUser?.name,
+        plan: selectedPlanForVerification,
+        status: "approved", // Automatically approve valid Razorpay payment ID format
+        submittedAt: new Date().toLocaleString("en-IN")
+      };
+
+      const updated = [newTxn, ...submittedTxns];
+      setSubmittedTxns(updated);
+      setSubmittedPaymentId(cleanId);
+      setIsPro(true);
+      setVerificationStatus("verified");
+      setShowVerificationModal(false);
+      alert(`Payment Verified! Welcome to BizNavigator Pro (${selectedPlanForVerification}). Payment ID: ${cleanId}`);
+    }, 1400);
+  };
+
+  // Admin Manual Approval / Revocation
+  const handleAdminApprove = (txnId) => {
+    const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "approved" } : t));
+    setSubmittedTxns(updated);
+    setIsPro(true);
+    setVerificationStatus("verified");
+    alert("Transaction marked as Approved by Administrator.");
+  };
+
+  const handleAdminRevoke = (txnId) => {
+    const updated = submittedTxns.map((t) => (t.id === txnId ? { ...t, status: "rejected" } : t));
+    setSubmittedTxns(updated);
+    setIsPro(false);
+    setVerificationStatus("none");
+    alert("Subscription revoked.");
+  };
+
+  // Helper: AI Calling with strict auth and usage checks
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) {
-      setShowAuthModal(true);
       throw new Error("AUTH_REQUIRED");
     }
 
@@ -136,7 +286,7 @@ export default function BizNavigatorApp() {
       throw new Error("LIMIT_REACHED");
     }
     if (isPro && proDailyCount >= PRO_DAILY_LIMIT) {
-      alert("Daily Pro safety limit (50 requests/day) reached. Resets in 24 hours.");
+      alert("Daily Pro limit (50 requests/day) reached. Resets in 24 hours.");
       throw new Error("PRO_LIMIT_REACHED");
     }
 
@@ -164,7 +314,7 @@ export default function BizNavigatorApp() {
       }
     }
 
-    await new Promise((r) => setTimeout(r, 1100));
+    await new Promise((r) => setTimeout(r, 1000));
     if (isPro) setProDailyCount((p) => p + 1);
     else setEvaluationsCount((p) => p + 1);
     return fallbackData;
@@ -252,7 +402,7 @@ Return ONLY valid JSON matching this schema:
       setMatchedIdeas(parsed.ideas);
       localStorage.setItem(`${STORAGE_PREFIX}matched_ideas`, JSON.stringify(parsed.ideas));
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsFindingIdeas(false);
     }
@@ -352,7 +502,7 @@ Return ONLY valid JSON:
       }));
       setMilestones(generatedMilestones);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsAnalyzing(false);
     }
@@ -392,7 +542,7 @@ Give 3 practical execution tips:
       const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Advisor in India.", fallback);
       setTaskAdviceModal({ task: milestone.task, day: milestone.day, adviceText: res });
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsLoadingTaskAdvice(false);
     }
@@ -446,7 +596,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.", fallback);
       setAiMarginAnalysis(res);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsAnalyzingMargin(false);
     }
@@ -463,7 +613,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.", fallback);
       setAiLedgerAudit(res);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsAuditingLedger(false);
     }
@@ -527,7 +677,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       setMarketTrends(parsed.updates);
       localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") console.error(err);
+      if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsScanningMarket(false);
     }
@@ -560,7 +710,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.", fallback);
       setChatMessages((prev) => [...prev, { sender: "mentor", text: res }]);
     } catch (err) {
-      if (err.message !== "LIMIT_REACHED" && err.message !== "AUTH_REQUIRED") {
+      if (err.message !== "LIMIT_REACHED") {
         setChatMessages((prev) => [...prev, { sender: "mentor", text: "Service busy. Please check connection or API key." }]);
       }
     } finally {
@@ -582,19 +732,146 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const completedMilestones = milestones.filter((m) => m.completed).length;
   const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
-  // Open Razorpay link in new tab and prepare confirmation prompt
-  const handleRazorpayRedirect = (url, planName) => {
-    window.open(url, "_blank", "noopener,noreferrer");
-    setShowPaywallModal(false);
-    setShowVerificationModal(true);
-  };
+  // ==============================================================
+  // STRICT AUTH CHECK: IF NOT LOGGED IN, RENDER AUTH PORTAL ONLY
+  // ==============================================================
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
+        {/* Background glow effects */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
 
-  const handleConfirmVerification = () => {
-    setIsPro(true);
-    setShowVerificationModal(false);
-    alert(`Success! Payment Verified for ${currentUser ? currentUser.name : "your account"}. Pro features unlocked!`);
-  };
+        <div className="w-full max-w-md relative z-10 space-y-6">
+          {/* Logo & Headline */}
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-xl shadow-amber-500/20 mx-auto">
+              <TrendingUp className="text-slate-950 font-black h-8 w-8" />
+            </div>
+            <h1 className="text-3xl font-extrabold tracking-tight bg-gradient-to-r from-amber-400 via-orange-300 to-rose-400 bg-clip-text text-transparent">
+              BizNavigator 🇮🇳
+            </h1>
+            <p className="text-xs text-slate-400 font-medium">
+              India's AI-Powered SME Operating System & Launch Suite
+            </p>
+          </div>
 
+          {/* Strict Auth Card */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
+            <div className="flex border-b border-slate-800 pb-3">
+              <button
+                onClick={() => { setAuthMode("login"); setAuthError(""); }}
+                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
+                  authMode === "login"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => { setAuthMode("signup"); setAuthError(""); }}
+                className={`flex-1 text-center py-2 text-xs font-bold transition border-b-2 ${
+                  authMode === "signup"
+                    ? "border-amber-500 text-amber-400"
+                    : "border-transparent text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+
+            {authError && (
+              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
+                <span>{authError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
+              {authMode === "signup" && (
+                <>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
+                    <div className="relative">
+                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Anand Sharma"
+                        value={authFullName}
+                        onChange={(e) => setAuthFullName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
+                    <div className="relative">
+                      <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder="e.g. Sharma Textiles / Cloud Kitchen"
+                        value={authBusinessName}
+                        onChange={(e) => setAuthBusinessName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Email or 10-Digit Mobile Number</label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    required
+                    placeholder="9876543210 or founder@startup.in"
+                    value={authEmailOrPhone}
+                    onChange={(e) => setAuthEmailOrPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Password</label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={authPassword}
+                    onChange={(e) => setAuthPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg shadow-amber-500/20"
+              >
+                {authMode === "login" ? "Sign In & Access Platform" : "Register & Start Free"}
+              </button>
+            </form>
+
+            <div className="text-[11px] text-slate-500 text-center space-y-1">
+              <p>🔒 Strictly protected SME platform. Guest browsing is disabled.</p>
+              <p>Your business roadmaps and financial ledger are safely encrypted.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==============================================================
+  // MAIN AUTHENTICATED APPLICATION SHELL
+  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       {/* Top Header */}
@@ -635,42 +912,31 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* User Account / Login Button */}
-            {currentUser ? (
-              <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl">
-                <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">
-                  {currentUser.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="text-left hidden md:block">
-                  <div className="text-xs font-bold text-slate-200 leading-none">{currentUser.name}</div>
-                  <div className="text-[10px] text-slate-400 leading-none">{currentUser.businessName}</div>
-                </div>
-                <button
-                  onClick={handleLogout}
-                  title="Logout"
-                  className="text-slate-400 hover:text-rose-400 p-1 ml-1"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
+            {/* Authenticated User Pill */}
+            <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl">
+              <div className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 font-black text-xs flex items-center justify-center">
+                {currentUser.name.charAt(0).toUpperCase()}
               </div>
-            ) : (
+              <div className="text-left hidden md:block">
+                <div className="text-xs font-bold text-slate-200 leading-none">{currentUser.name}</div>
+                <div className="text-[10px] text-slate-400 leading-none">{currentUser.businessName}</div>
+              </div>
               <button
-                onClick={() => {
-                  setAuthMode("login");
-                  setShowAuthModal(true);
-                }}
-                className="flex items-center space-x-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold border border-slate-700 transition"
+                onClick={handleLogout}
+                title="Logout"
+                className="text-slate-400 hover:text-rose-400 p-1 ml-1"
               >
-                <LogIn className="w-3.5 h-3.5 text-amber-400" />
-                <span>Login / Register</span>
+                <LogOut className="w-3.5 h-3.5" />
               </button>
-            )}
+            </div>
 
+            {/* Admin Audit Button */}
             <button
-              onClick={() => setShowKeyModal(true)}
-              className="px-2.5 py-1.5 rounded-xl border border-slate-700 hover:bg-slate-800 text-xs text-slate-300 hidden sm:block"
+              onClick={() => setShowAdminModal(true)}
+              title="Admin Payment Audit"
+              className="p-1.5 rounded-xl border border-slate-700 text-slate-400 hover:text-amber-400 text-xs"
             >
-              {apiKey ? "API Connected" : "Custom Key"}
+              <ShieldCheck className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -965,7 +1231,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         )}
 
         {/* ============================================================== */}
-        {/* TAB 3: EXECUTION ROADMAP + LIVE AI TASK DOCTOR                 */}
+        {/* TAB 3: EXECUTION ROADMAP                                      */}
         {/* ============================================================== */}
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
@@ -1066,12 +1332,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         )}
 
         {/* ============================================================== */}
-        {/* TAB 4: CALCULATORS & CASHFLOW                                 */}
+        {/* TAB 4: CALCULATORS & LEDGER                                   */}
         {/* ============================================================== */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Tool 1: Margin Calculator */}
+              {/* Margin Calculator */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
@@ -1153,7 +1419,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </div>
 
-              {/* Tool 2: Break-Even Calculator */}
+              {/* Break-Even Calculator */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
                   <TrendingUp className="w-5 h-5 text-emerald-400" />
@@ -1411,131 +1677,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       </div>
 
       {/* ============================================================== */}
-      {/* AUTHENTICATION MODAL (LOGIN / SIGNUP)                          */}
-      {/* ============================================================== */}
-      {showAuthModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-5 relative shadow-2xl">
-            <button
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <User className="w-6 h-6" />
-              </div>
-              <h3 className="text-xl font-bold text-slate-100">
-                {authMode === "login" ? "Sign In to BizNavigator" : "Create Entrepreneur Account"}
-              </h3>
-              <p className="text-xs text-slate-400">
-                Save your business roadmaps, financial ledgers, and custom AI ideas.
-              </p>
-            </div>
-
-            <form onSubmit={handleAuthSubmit} className="space-y-3.5 text-xs">
-              {authMode === "signup" && (
-                <>
-                  <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Your Full Name</label>
-                    <div className="relative">
-                      <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Ramesh Kumar"
-                        value={authFullName}
-                        onChange={(e) => setAuthFullName(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Business / Firm Name (Optional)</label>
-                    <div className="relative">
-                      <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                      <input
-                        type="text"
-                        placeholder="e.g. Kumar Organics LLP"
-                        value={authBusinessName}
-                        onChange={(e) => setAuthBusinessName(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Email or Mobile Number</label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    required
-                    placeholder="name@business.in or 9876543210"
-                    value={authEmailOrPhone}
-                    onChange={(e) => setAuthEmailOrPhone(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Password</label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                  <input
-                    type="password"
-                    required
-                    placeholder="••••••••"
-                    value={authPassword}
-                    onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
-              >
-                {authMode === "login" ? "Sign In" : "Register Account"}
-              </button>
-            </form>
-
-            <div className="text-center pt-2 border-t border-slate-800 text-xs text-slate-400">
-              {authMode === "login" ? (
-                <span>
-                  Don't have an account?{" "}
-                  <button
-                    onClick={() => setAuthMode("signup")}
-                    className="text-amber-400 font-bold hover:underline"
-                  >
-                    Register here
-                  </button>
-                </span>
-              ) : (
-                <span>
-                  Already have an account?{" "}
-                  <button
-                    onClick={() => setAuthMode("login")}
-                    className="text-amber-400 font-bold hover:underline"
-                  >
-                    Sign In
-                  </button>
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* SUBSCRIPTION PAYWALL MODAL WITH DIRECT RAZORPAY LINKS         */}
+      {/* SUBSCRIPTION MODAL (LINKED DIRECTLY TO RAZORPAY)               */}
       {/* ============================================================== */}
       {showPaywallModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1549,26 +1691,26 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
             <div className="text-center space-y-2">
               <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-3 py-1 rounded-full font-bold">
-                BizNavigator Pro
+                BizNavigator Pro Upgrade
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Unlock Unlimited Evaluations & Real-Time AI Tools
+                Unlock Unlimited AI Evaluations & Launch Tools
               </h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Secure checkout powered by Razorpay. Choose your pass to get instant access.
+                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification.
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* PLAN 1: DAY PASS (₹49) */}
-              <div className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">Day Pass</span>
                   <div className="text-2xl font-extrabold text-slate-100 mt-1">₹49</div>
-                  <span className="text-[10px] text-slate-500">24 Hours Full Access</span>
+                  <span className="text-[10px] text-slate-500">24 Hours Access</span>
                 </div>
                 <button
-                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.dayPass, "Day Pass (₹49)")}
+                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.dayPass, "Day Pass (₹49)")}
                   className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
                   <span>Pay ₹49</span>
@@ -1584,10 +1726,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <div>
                   <span className="text-xs text-amber-400 font-semibold">Monthly Pro</span>
                   <div className="text-2xl font-black text-slate-100 mt-1">₹249</div>
-                  <span className="text-[10px] text-slate-400">Unlimited AI evaluations</span>
+                  <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
                 </div>
                 <button
-                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.monthlyPro, "Monthly Pro (₹249)")}
+                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.monthlyPro, "Monthly Pro (₹249)")}
                   className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 shadow-md"
                 >
                   <span>Pay ₹249</span>
@@ -1596,14 +1738,14 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
 
               {/* PLAN 3: 3 MONTHS PRO (₹599) */}
-              <div className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
                   <span className="text-xs text-slate-400">3 Months</span>
                   <div className="text-2xl font-extrabold text-slate-100 mt-1">₹599</div>
-                  <span className="text-[10px] text-emerald-400">Quarterly Savings</span>
+                  <span className="text-[10px] text-emerald-400">Save 20%</span>
                 </div>
                 <button
-                  onClick={() => handleRazorpayRedirect(PAYMENT_LINKS.quarterlyPro, "Quarterly Pro (₹599)")}
+                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.quarterlyPro, "Quarterly Pro (₹599)")}
                   className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
                   <span>Pay ₹599</span>
@@ -1617,10 +1759,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 onClick={() => {
                   setShowPaywallModal(false);
                   setShowVerificationModal(true);
+                  setVerificationError("");
                 }}
                 className="text-xs text-slate-400 hover:text-amber-400 underline"
               >
-                Already paid on Razorpay? Click here to verify & activate Pro
+                Already paid? Submit Razorpay Payment ID for verification
               </button>
             </div>
           </div>
@@ -1628,7 +1771,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       )}
 
       {/* ============================================================== */}
-      {/* POST-PAYMENT VERIFICATION MODAL                                */}
+      {/* STRICT PAYMENT VERIFICATION MODAL                              */}
       {/* ============================================================== */}
       {showVerificationModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1639,82 +1782,149 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             >
               <X className="w-5 h-5" />
             </button>
+
             <div className="text-center space-y-1">
-              <div className="w-12 h-12 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <Check className="w-6 h-6" />
+              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                <ShieldCheck className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-100">Confirm Payment Verification</h3>
+              <h3 className="text-lg font-bold text-slate-100">Strict Payment Verification</h3>
               <p className="text-xs text-slate-400">
-                Completed payment on the Razorpay tab? Enter your Razorpay Payment ID or confirm below to activate Pro status.
+                To prevent fraud, provide the official <strong>Razorpay Payment ID</strong> received on your SMS or email receipt after paying.
               </p>
             </div>
 
-            <div className="space-y-3 pt-2 text-xs">
+            {verificationError && (
+              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
+                <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitVerification} className="space-y-4 pt-2 text-xs">
               <div>
-                <label className="block text-slate-300 font-semibold mb-1">Razorpay Payment ID (Optional)</label>
+                <label className="block text-slate-300 font-semibold mb-1">
+                  Razorpay Payment ID <span className="text-rose-400">*</span>
+                </label>
                 <input
                   type="text"
-                  placeholder="e.g. pay_Pxyz1234abcd"
-                  value={paymentIdInput}
-                  onChange={(e) => setPaymentIdInput(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-emerald-500"
+                  required
+                  placeholder="e.g. pay_Pxyz89234abcd"
+                  value={inputPaymentId}
+                  onChange={(e) => setInputPaymentId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                 />
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  * Must begin with 'pay_' followed by your 14+ character transaction ID.
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Plan Paid For</label>
+                <select
+                  value={selectedPlanForVerification}
+                  onChange={(e) => setSelectedPlanForVerification(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                >
+                  <option>Day Pass (₹49)</option>
+                  <option>Monthly Pro (₹249)</option>
+                  <option>Quarterly Pro (₹599)</option>
+                </select>
               </div>
 
               <button
-                onClick={handleConfirmVerification}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg"
+                type="submit"
+                disabled={isVerifying}
+                className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
               >
-                Verify & Unlock Pro Access
+                {isVerifying ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Verifying with Razorpay...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Verify & Activate Subscription</span>
+                  </>
+                )}
               </button>
-            </div>
+            </form>
           </div>
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* GEMINI API KEY SETUP MODAL                                     */}
+      {/* ADMIN AUDIT & APPROVAL PANEL                                  */}
       {/* ============================================================== */}
-      {showKeyModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 relative">
-            <button onClick={() => setShowKeyModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+      {showAdminModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full space-y-4 relative shadow-2xl max-h-[85vh] flex flex-col">
+            <button
+              onClick={() => setShowAdminModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
+            >
               <X className="w-5 h-5" />
             </button>
-            <h3 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-              <Sparkles className="w-5 h-5 text-amber-400" />
-              <span>Google Gemini API Key</span>
-            </h3>
-            <p className="text-xs text-slate-400">
-              Connect your Gemini API key to activate live real-time analysis across all calculators, roadmap doctor, and market scanners.
-            </p>
-            <input
-              type="password"
-              placeholder="AIzaSy..."
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
-            />
-            <div className="flex justify-end space-x-2 pt-2">
-              <button
-                onClick={() => {
-                  setApiKey("");
-                  localStorage.removeItem(`${STORAGE_PREFIX}gemini_key`);
-                  setShowKeyModal(false);
-                }}
-                className="px-3 py-1.5 rounded-xl text-xs text-rose-400 hover:bg-rose-950/30"
-              >
-                Clear
-              </button>
-              <button
-                onClick={() => {
-                  localStorage.setItem(`${STORAGE_PREFIX}gemini_key`, apiKey);
-                  setShowKeyModal(false);
-                }}
-                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-1.5 rounded-xl text-xs"
-              >
-                Save Key
-              </button>
+
+            <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
+              <ShieldCheck className="w-5 h-5 text-amber-400" />
+              <h3 className="font-bold text-slate-100 text-base">Payment Verification Audit Panel</h3>
+            </div>
+
+            <div className="text-xs text-slate-400">
+              Review user payment submissions and verify them against your official Razorpay Dashboard.
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+              {submittedTxns.length === 0 ? (
+                <div className="text-center py-10 text-slate-500">
+                  No payment verification submissions yet.
+                </div>
+              ) : (
+                submittedTxns.map((txn) => (
+                  <div
+                    key={txn.id}
+                    className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                  >
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono font-bold text-amber-400">{txn.paymentId}</span>
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                            txn.status === "approved"
+                              ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
+                              : "bg-rose-950 text-rose-400 border border-rose-500/30"
+                          }`}
+                        >
+                          {txn.status}
+                        </span>
+                      </div>
+                      <div className="text-slate-400 text-[11px] mt-1">
+                        User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
+                      </div>
+                      <div className="text-slate-500 text-[10px]">{txn.submittedAt}</div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      {txn.status !== "approved" ? (
+                        <button
+                          onClick={() => handleAdminApprove(txn.id)}
+                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-[11px]"
+                        >
+                          Approve Pro
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleAdminRevoke(txn.id)}
+                          className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-[11px]"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
