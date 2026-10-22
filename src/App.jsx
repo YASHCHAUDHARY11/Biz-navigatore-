@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -43,7 +44,8 @@ import {
   Calendar,
   Filter,
   Flame,
-  FileEdit
+  FileEdit,
+  CheckCircle
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
@@ -101,8 +103,8 @@ export default function BizNavigatorApp() {
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
-  // Registration OTP States (Same OTP Verification for Sign Up)
-  const [signupStep, setSignupStep] = useState(1); // 1 = Details Form, 2 = Email OTP Verification
+  // Registration OTP States
+  const [signupStep, setSignupStep] = useState(1);
   const [signupEnteredOtp, setSignupEnteredOtp] = useState("");
   const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
   const [signupResendCooldown, setSignupResendCooldown] = useState(0);
@@ -128,7 +130,7 @@ export default function BizNavigatorApp() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || VERCEL_ENV_GEMINI_KEY);
   const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
 
-  // Strict Pro Check: Only active if Admin, granted in DB, or verified transaction in DB
+  // Strict Pro Check
   const isUserPro = Boolean(
     currentUser && (
       currentUser.role === "admin" ||
@@ -185,7 +187,6 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
-  // Forgot password OTP countdown timer
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -198,7 +199,6 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
-  // Signup OTP countdown timer
   useEffect(() => {
     if (signupOtpSecondsLeft <= 0) return;
     const interval = setInterval(() => setSignupOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -211,11 +211,23 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupResendCooldown]);
 
+  // ==============================================================
+  // ACTIVE CHOSEN VENTURE STATE (FOLLOWED ACROSS ALL OTHER TABS)
+  // ==============================================================
+  const [selectedVenture, setSelectedVenture] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}selected_venture`);
+    return cached ? JSON.parse(cached) : null;
+  });
+
+  useEffect(() => {
+    if (selectedVenture) {
+      localStorage.setItem(`${STORAGE_PREFIX}selected_venture`, JSON.stringify(selectedVenture));
+    }
+  }, [selectedVenture]);
+
   // ==========================================
   // REAL EMAIL OTP & AUTHENTICATION HANDLERS
   // ==========================================
-
-  // --- SIGN IN HANDLER ---
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -245,7 +257,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // --- REGISTRATION STEP 1: SEND REAL EMAIL OTP ---
   const handleSignupRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -264,18 +275,13 @@ export default function BizNavigatorApp() {
     setIsSendingSignupOtp(true);
 
     try {
-      // First attempt dedicated registration OTP endpoint, with fallback to send-otp
       let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: authEmailOrPhone,
-          name: authFullName
-        })
+        body: JSON.stringify({ email: authEmailOrPhone, name: authFullName })
       });
 
       if (!res.ok) {
-        // Fallback to shared host OTP dispatcher
         res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -284,7 +290,7 @@ export default function BizNavigatorApp() {
       }
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP to email.");
+      if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP.");
 
       setSignupStep(2);
       setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
@@ -297,7 +303,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // --- REGISTRATION STEP 2: VERIFY OTP & CREATE ACCOUNT IN MONGODB ---
   const handleSignupVerifyAndRegister = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -343,7 +348,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // --- FORGOT PASSWORD STEP 1: SEND OTP ---
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -371,7 +375,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // --- FORGOT PASSWORD STEP 2: VERIFY OTP & RESET PASSWORD ---
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -468,16 +471,18 @@ export default function BizNavigatorApp() {
     return fallbackData;
   };
 
-  // --- TAB 1: AI IDEA MATCHER ---
-  const [finderBudget, setFinderBudget] = useState("100000");
-  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech Corridor)");
-  const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media");
-  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Tea, Beverages");
+  // ==============================================================
+  // TAB 1: AI IDEA MATCHER (5 IDEAS + 1-CLICK PIPELINE TO ALL TABS)
+  // ==============================================================
+  const [finderBudget, setFinderBudget] = useState("150000");
+  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Hub)");
+  const [finderSkills, setFinderSkills] = useState("Direct Sales, Basic Cooking, Social Media Marketing");
+  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Specialty Tea, Eco-Packaging");
   const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
   const [finderRisk, setFinderRisk] = useState("Moderate (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
   const [matchedIdeas, setMatchedIdeas] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas`);
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_5`);
     return cached ? JSON.parse(cached) : null;
   });
 
@@ -485,20 +490,28 @@ export default function BizNavigatorApp() {
     e.preventDefault();
     setIsFindingIdeas(true);
 
-    const prompt = `Generate 3 tailored Indian business ideas based on:
-Capital: ₹${finderBudget}, Location: ${finderLocation}, Skills: ${finderSkills}, Interests: ${finderInterests}, Commitment: ${finderTime}, Risk: ${finderRisk}.
+    const prompt = `Generate exactly 5 distinct, tailored, high-margin Indian business ideas based on these inputs:
+- Planned Capital/Budget: ₹${finderBudget}
+- City/Location: ${finderLocation}
+- Skills & Background: ${finderSkills}
+- Passions & Interests: ${finderInterests}
+- Commitment: ${finderTime}
+- Risk Appetite: ${finderRisk}
+
+Make sure the 5 ideas represent diverse SME categories (e.g. 1 Retail/F&B, 1 B2B Supply/Packaging, 1 D2C/WhatsApp Commerce, 1 Micro-Services/Agency, 1 Micro-Manufacturing).
 Return ONLY valid JSON matching this schema:
 {
   "ideas": [
     {
       "id": "idea_1",
       "title": "Business Concept Name",
-      "tagline": "One-line summary",
-      "matchScore": 94,
-      "whyFit": "Why this matches their skills and capital.",
-      "estimatedCapex": "₹80,000",
-      "monthlyPotential": "₹40,000 - ₹70,000",
-      "targetAudience": "Target demographic",
+      "tagline": "Clear 1-line pitch",
+      "category": "F&B / B2B / D2C / Services / Manufacturing",
+      "matchScore": 96,
+      "whyFit": "Why this matches their skills and capital perfectly.",
+      "estimatedCapex": "₹90,000",
+      "monthlyPotential": "₹45,000 - ₹80,000 net profit",
+      "targetAudience": "Tech park employees, college youth & commuters",
       "firstStep": "Tangible Day 1 launch step in India"
     }
   ]
@@ -509,13 +522,62 @@ Return ONLY valid JSON matching this schema:
         {
           id: "idea_1",
           title: "Specialty Chai & Healthy Street-Food Kiosk",
-          tagline: "High-volume kiosk near tech-parks or student zones.",
-          matchScore: 95,
-          whyFit: `Accessible entry budget under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
+          tagline: "High-volume kiosk near office tech-parks or coaching hubs.",
+          category: "Retail F&B",
+          matchScore: 96,
+          whyFit: `Capitalizes on your culinary and direct sales interest with an accessible initial setup under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
           estimatedCapex: `₹${(finderBudget * 0.65).toFixed(0)}`,
           monthlyPotential: "₹45,000 - ₹85,000 net profit",
-          targetAudience: "Tech park employees, college youth & commuters",
+          targetAudience: "Tech park employees, college youth & daily commuters",
           firstStep: "Survey 2 commercial tech parks for footfall density between 4 PM to 7 PM."
+        },
+        {
+          id: "idea_2",
+          title: "Eco-Friendly Corrugated Packaging & Retail Bags",
+          tagline: "B2B supply partner for local retail brands replacing single-use plastic.",
+          category: "B2B Supply",
+          matchScore: 92,
+          whyFit: "Matches sales capabilities with recurring monthly procurement contracts from clothing boutiques and sweet shops.",
+          estimatedCapex: `₹${(finderBudget * 0.85).toFixed(0)}`,
+          monthlyPotential: "₹35,000 - ₹90,000 recurring retainers",
+          targetAudience: "Boutique clothing shops, sweet vendors, and local cafes",
+          firstStep: "Request wholesale pricing catalogs from paper bag converters on Indiamart."
+        },
+        {
+          id: "idea_3",
+          title: "Hyperlocal WhatsApp D2C Daily Essentials & Regional Snacks",
+          tagline: "Curated regional namkeen & organic spices delivered via gated society groups.",
+          category: "D2C Commerce",
+          matchScore: 89,
+          whyFit: "Zero commercial rent; lets you start from home and achieve fast cash conversion with repeat weekly orders.",
+          estimatedCapex: `₹${(finderBudget * 0.4).toFixed(0)}`,
+          monthlyPotential: "₹25,000 - ₹50,000 part-time",
+          targetAudience: "Gated society residents & festive gift buyers",
+          firstStep: "Set up a WhatsApp Business catalog and run an introductory sample pack offer."
+        },
+        {
+          id: "idea_4",
+          title: "Local Business Google Maps & WhatsApp Commerce Agency",
+          tagline: "Helps traditional retail shops get online, optimize local SEO, and accept catalog orders.",
+          category: "Micro-Services",
+          matchScore: 87,
+          whyFit: "Extremely low CapEx requirement; relies purely on social media knowledge and feet-on-street merchant pitching.",
+          estimatedCapex: `₹${(finderBudget * 0.25).toFixed(0)}`,
+          monthlyPotential: "₹30,000 - ₹70,000 monthly retainers",
+          targetAudience: "Local optometrists, salons, bakeries, and hardware merchants",
+          firstStep: "Audit 10 local retail stores on Google Maps to find missing photos, menus, and phone numbers."
+        },
+        {
+          id: "idea_5",
+          title: "Cold-Pressed Wood-Churned (Ghani) Edible Oils Unit",
+          tagline: "Freshly pressed mustard, groundnut & coconut oil extraction for health-conscious households.",
+          category: "Micro-Manufacturing",
+          matchScore: 84,
+          whyFit: "Taps into surging demand for unadulterated cooking oils with high margins through direct neighborhood refill stations.",
+          estimatedCapex: `₹${(finderBudget * 0.95).toFixed(0)}`,
+          monthlyPotential: "₹50,000 - ₹1,00,000 net profit",
+          targetAudience: "Health-conscious families, gym-goers, and diabetic seniors",
+          firstStep: "Compare 1-HP domestic wood-press ghani extraction machine prices from manufacturers in Coimbatore/Rajkot."
         }
       ]
     });
@@ -524,12 +586,147 @@ Return ONLY valid JSON matching this schema:
       const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Output JSON only.", fallback);
       const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
       setMatchedIdeas(parsed.ideas);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas`, JSON.stringify(parsed.ideas));
+      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_5`, JSON.stringify(parsed.ideas));
     } catch (err) {
       if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
       setIsFindingIdeas(false);
     }
+  };
+
+  // --- UNIFIED PIPELINE: SELECT 1 OF 5 IDEAS & LINK ACROSS ALL FEATURES ---
+  const handleChooseVenture = (idea) => {
+    setSelectedVenture(idea);
+
+    // 1. Link to Business Evaluator
+    setBusinessIdea(`${idea.title} - ${idea.tagline}`);
+    setInitialCapital(finderBudget);
+    setTargetCity(finderLocation);
+    setCustomerSegment(idea.targetAudience);
+
+    // 2. Link to Location Scout
+    setScoutConcept(idea.title);
+    setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
+
+    // 3. Link to Daily Sprint (Adapt Sprint Focus to Chosen Idea)
+    const adaptedSprint = [
+      {
+        id: "day_1",
+        dayTitle: `Day 1: Ground Demand Intercept for ${idea.title.substring(0, 22)}...`,
+        phase: "Phase 1: Demand Validation",
+        task: `Survey 25 prospective customers in ${finderLocation} matching ${idea.targetAudience}.`,
+        timeEst: "3.5 hrs",
+        budgetEst: "₹300",
+        priority: "Critical",
+        completed: false,
+        notes: `Focusing on ${idea.title}. First action: ${idea.firstStep}`
+      },
+      {
+        id: "day_2",
+        dayTitle: `Day 2: Competitor Price & Margin Audit`,
+        phase: "Phase 1: Demand Validation",
+        task: `Audit 3 active competitors in ${idea.category} to benchmark retail prices and volume bottlenecks.`,
+        timeEst: "3 hrs",
+        budgetEst: "₹500",
+        priority: "High",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_3",
+        dayTitle: `Day 3: Wholesale Vendor & Mandi Price Lock-in`,
+        phase: "Phase 2: Sourcing",
+        task: `Identify 3 verified wholesale suppliers on Indiamart or local markets for ${idea.title}.`,
+        timeEst: "4 hrs",
+        budgetEst: "₹0",
+        priority: "Critical",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_4",
+        dayTitle: `Day 4: Custom Packaging & Consumables`,
+        phase: "Phase 2: Sourcing",
+        task: `Procure trial batch of branded packaging/containers suitable for ${idea.category}.`,
+        timeEst: "3 hrs",
+        budgetEst: "₹4,500",
+        priority: "High",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_5",
+        dayTitle: `Day 5: MSME Udyam Zero-Cost Registration`,
+        phase: "Phase 3: Compliance",
+        task: "Register online on udyamregistration.gov.in using Aadhaar & PAN for government priority lending benefits.",
+        timeEst: "1 hr",
+        budgetEst: "₹0 (Free Gov portal)",
+        priority: "Critical",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_6",
+        dayTitle: `Day 6: Current Bank Account & GST Verification`,
+        phase: "Phase 3: Compliance",
+        task: `Visit bank with Udyam Certificate and rent agreement to initiate Current Account for ${idea.title}.`,
+        timeEst: "3 hrs",
+        budgetEst: "₹10,000 (Initial deposit)",
+        priority: "High",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_7",
+        dayTitle: `Day 7: Category License (FSSAI / Shop Act / Trade License)`,
+        phase: "Phase 3: Compliance",
+        task: idea.category.includes("F&B")
+          ? "Apply for FSSAI Basic Food Registration on foscos.fssai.gov.in (₹100/yr)."
+          : "Apply for Municipal Shop & Establishment Trade License.",
+        timeEst: "2 hrs",
+        budgetEst: "₹1,500",
+        priority: "Critical",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_8",
+        dayTitle: `Day 8: UPI Merchant QR & Soundbox Installation`,
+        phase: "Phase 4: Launch",
+        task: "Set up Paytm/PhonePe/BharatPe UPI Merchant Soundbox for instant zero-MDR voice payment confirmations.",
+        timeEst: "1.5 hrs",
+        budgetEst: "₹125/mo rental",
+        priority: "High",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_9",
+        dayTitle: `Day 9: WhatsApp Business Catalog & Neighborhood Flyers`,
+        phase: "Phase 4: Launch",
+        task: `Create digital catalog for ${idea.title} and distribute 500 promotional flyers in target zone.`,
+        timeEst: "3 hrs",
+        budgetEst: "₹1,200",
+        priority: "Medium",
+        completed: false,
+        notes: ""
+      },
+      {
+        id: "day_10",
+        dayTitle: `Day 10: Soft Launch (Beta Batch & Customer Reviews)`,
+        phase: "Phase 4: Launch",
+        task: `Launch pilot run of ${idea.title} with an introductory offer to collect first 20 verified customer reviews.`,
+        timeEst: "5 hrs",
+        budgetEst: "₹2,500",
+        priority: "Critical",
+        completed: false,
+        notes: ""
+      }
+    ];
+
+    setDailySprintTasks(adaptedSprint);
+    setActiveTab("location-scout"); // Direct user to the next logical step: finding the best spot!
+    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools (Location Scout 📍, Feasibility Evaluator, and 10-Day Sprint Guide) are now configured for this business.`);
   };
 
   // --- TAB 2: LOCATION SCOUT ---
@@ -580,6 +777,17 @@ Return ONLY valid JSON:
           peakHours: "9:00 AM - 11:30 AM & 5:00 PM - 9:00 PM",
           idealFormat: "Compact front-facing takeaway counter with UPI soundbox",
           verdict: "High evening beverage spend with very low price sensitivity."
+        },
+        {
+          name: "Koramangala 7th Block (Near Forum & Co-working Clusters)",
+          zoneType: "Commercial & Student Belt",
+          suitabilityScore: 91,
+          estimatedRent: "₹140 - ₹190 / sq.ft (~₹25,000/mo for 130 sq.ft)",
+          footfallProfile: "College students, working bachelors, weekend cafe crowds",
+          competitionDensity: "High",
+          peakHours: "1:00 PM - 3:30 PM & 6:00 PM - 10:30 PM",
+          idealFormat: "Eye-catching neon branding kiosk with fast-serving menu items",
+          verdict: "Immense daily footfall; guaranteed high volume if served under 90 seconds."
         }
       ]
     });
@@ -599,7 +807,7 @@ Return ONLY valid JSON:
   // --- TAB 3: BUSINESS EVALUATOR ---
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
-  const [initialCapital, setInitialCapital] = useState("250000");
+  const [initialCapital, setInitialCapital] = useState("150000");
   const [customerSegment, setCustomerSegment] = useState("B2C Young Working Professionals");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(() => {
@@ -628,18 +836,18 @@ Return ONLY valid JSON:
     const fallback = JSON.stringify({
       viabilityScore: 8.4,
       competitionScore: 6.8,
-      summary: `High domestic demand in ${targetCity}. Focus on lean direct distribution.`,
+      summary: `High domestic demand in ${targetCity}. Given your capital of ₹${parseInt(initialCapital).toLocaleString("en-IN")}, focus on lean direct distribution.`,
       estimatedMarginPercent: "32% - 44%",
       breakEvenMonths: "5 to 6 Months",
       capex: [
-        { item: "Machinery / Equipment / Kiosk", cost: `₹${(initialCapital * 0.35).toFixed(0)}` },
+        { item: "Machinery / Equipment / Setup", cost: `₹${(initialCapital * 0.35).toFixed(0)}` },
         { item: "Opening Stock & Packaging", cost: `₹${(initialCapital * 0.40).toFixed(0)}` }
       ],
       monthlyOpex: [
         { item: "Space Rent / Utility Share", cost: "₹14,000 - ₹22,000" },
         { item: "Logistics & Consumables", cost: "₹8,500" }
       ],
-      licenses: ["MSME Udyam Registration (Free)", "GSTIN Registration", "FSSAI Basic Permit"]
+      licenses: ["MSME Udyam Registration (Free)", "GSTIN Registration", "FSSAI / Municipal Trade Permit"]
     });
 
     try {
@@ -655,49 +863,16 @@ Return ONLY valid JSON:
   };
 
   // --- TAB 4: SPRINT TASKS ---
-  const initialDailyTasks = [
-    {
-      id: "day_1",
-      dayTitle: "Day 1: Ground Demand & Target Customer Intercept",
-      phase: "Phase 1: Validation",
-      task: "Survey 25 prospective customers in your target zone to test willingness to pay.",
-      timeEst: "3.5 hrs",
-      budgetEst: "₹300",
-      priority: "Critical",
-      completed: true,
-      notes: "Surveyed 20 techies near co-working cluster; strong demand for quick morning chai."
-    },
-    {
-      id: "day_2",
-      dayTitle: "Day 2: Competitor Price & Portion Audit",
-      phase: "Phase 1: Validation",
-      task: "Mystery shop at 3 nearby competitors. Note their cup sizes, pricing, and peak queues.",
-      timeEst: "2.5 hrs",
-      budgetEst: "₹450",
-      priority: "High",
-      completed: false,
-      notes: ""
-    },
-    {
-      id: "day_3",
-      dayTitle: "Day 3: Wholesale Vendor & Mandi Price Lock-in",
-      phase: "Phase 2: Supply Chain",
-      task: "Visit local APMC mandi or wholesale tea/spices trader to request volume rate-cards.",
-      timeEst: "4 hrs",
-      budgetEst: "₹0",
-      priority: "Critical",
-      completed: false,
-      notes: ""
-    }
-  ];
-
   const [dailySprintTasks, setDailySprintTasks] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}daily_sprint`);
-    return cached ? JSON.parse(cached) : initialDailyTasks;
+    return cached ? JSON.parse(cached) : [];
   });
 
+  const [roadmapFilter, setRoadmapFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [tempNoteText, setTempNoteText] = useState("");
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_PREFIX}daily_sprint`, JSON.stringify(dailySprintTasks));
@@ -706,6 +881,13 @@ Return ONLY valid JSON:
   const toggleDailyTask = (id) => {
     const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
+  };
+
+  const handleSaveTaskNote = (id) => {
+    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, notes: tempNoteText } : t));
+    setDailySprintTasks(updated);
+    setEditingNoteId(null);
+    setTempNoteText("");
   };
 
   const handleConsultDailyTaskAI = async (taskItem) => {
@@ -721,7 +903,7 @@ Include:
 3. Don't-do-this pitfall.`;
 
     const fallback = `1. STEP-BY-STEP CHECKLIST:
-- Arrive at the wholesale mandi by 9:30 AM before peak trading rush.
+- Arrive at the wholesale mandi/market by 9:30 AM before peak trading rush.
 - Request rate-slabs for 50, 200, and 500 units.
 - Always ask for GST invoice with ITC eligibility.
 
@@ -742,7 +924,13 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
   };
 
   const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
-  const sprintProgressPercent = Math.round((completedDailyCount / dailySprintTasks.length) * 100);
+  const sprintProgressPercent = dailySprintTasks.length > 0 ? Math.round((completedDailyCount / dailySprintTasks.length) * 100) : 0;
+
+  const filteredTasks = dailySprintTasks.filter((t) => {
+    if (roadmapFilter === "pending") return !t.completed;
+    if (roadmapFilter === "completed") return t.completed;
+    return true;
+  });
 
   // --- TAB 5: CALCULATORS & LEDGER ---
   const [costPrice, setCostPrice] = useState(250);
@@ -779,7 +967,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
   };
 
   // ==========================================
-  // AUTH WALL (REAL EMAIL OTP FOR BOTH SIGNUP & FORGOT)
+  // AUTH WALL (REAL EMAIL OTP FOR SIGNUP & FORGOT)
   // ==========================================
   if (!currentUser) {
     return (
@@ -795,7 +983,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               BizNavigator 🇮🇳
             </h1>
             <p className="text-xs text-slate-400 font-medium">
-              Real Host Email OTP Authentication
+              India's AI-Powered SME Operating System & Launch Suite
             </p>
           </div>
 
@@ -804,9 +992,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <button
                 onClick={() => { setAuthMode("login"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
-                  authMode === "login"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                  authMode === "login" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Sign In
@@ -814,9 +1000,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <button
                 onClick={() => { setAuthMode("signup"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
-                  authMode === "signup"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                  authMode === "signup" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Register
@@ -824,9 +1008,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <button
                 onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
-                  authMode === "forgot"
-                    ? "border-amber-500 text-amber-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                  authMode === "forgot" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 <KeyRound className="w-3 h-3" />
@@ -835,9 +1017,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <button
                 onClick={() => { setAuthMode("admin"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
-                  authMode === "admin"
-                    ? "border-rose-500 text-rose-400"
-                    : "border-transparent text-slate-400 hover:text-slate-200"
+                  authMode === "admin" ? "border-rose-500 text-rose-400" : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 <Crown className="w-3.5 h-3.5" />
@@ -869,7 +1049,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   </h3>
                   <p className="text-[10px] text-slate-400 mt-0.5">
                     {signupStep === 1
-                      ? "Step 1 of 2: Fill details & receive 6-digit OTP in your inbox"
+                      ? "Step 1 of 2: Fill details & receive 6-digit OTP in inbox"
                       : "Step 2 of 2: Enter code to verify email & create account"}
                   </p>
                 </div>
@@ -960,7 +1140,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                         <label className="text-slate-300 font-semibold">6-Digit Security OTP from Email</label>
                         <span className="text-[10px] text-amber-400 font-mono flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
-                          <span>{formatCountdown(signupOtpSecondsLeft)}</span>
+                          <span>Expires in: {formatCountdown(signupOtpSecondsLeft)}</span>
                         </span>
                       </div>
                       <div className="relative">
@@ -1018,7 +1198,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : authMode === "forgot" ? (
-              /* VIEW B: REAL HOST EMAIL OTP FORGOT PASSWORD FLOW */
+              /* FORGOT PASSWORD WITH REAL EMAIL OTP */
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                   <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
@@ -1027,8 +1207,8 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   </h3>
                   <p className="text-[10px] text-slate-400 mt-0.5">
                     {otpStep === 1
-                      ? "Step 1: Dispatch 6-digit verification code to your email inbox"
-                      : "Step 2: Enter code & set your new password"}
+                      ? "Step 1: Enter email to receive security code"
+                      : "Step 2: Enter code & set new password"}
                   </p>
                 </div>
 
@@ -1153,7 +1333,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : (
-              /* VIEW C: SIGN IN & ADMIN AUTHENTICATION */
+              /* LOGIN & ADMIN FORM */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
@@ -1256,11 +1436,12 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
     );
   }
 
-  // ==========================================
-  // AUTHENTICATED APPLICATION
-  // ==========================================
+  // ==============================================================
+  // MAIN AUTHENTICATED APPLICATION SHELL
+  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
+      {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -1329,10 +1510,11 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         </div>
 
+        {/* Global Navigation Tabs */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto text-sm border-t border-slate-800/80 pt-1">
           {[
-            { id: "idea-finder", label: "AI Idea Matcher", icon: Lightbulb },
-            { id: "location-scout", label: "Location Scout 📍", icon: MapPin, highlight: true },
+            { id: "idea-finder", label: "AI Idea Matcher (5 Ideas)", icon: Lightbulb },
+            { id: "location-scout", label: "Location Scout 📍", icon: MapPin },
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
             { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator }
@@ -1351,55 +1533,105 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
-                {tab.highlight && (
-                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.2 rounded border border-amber-500/40">
-                    NEW
-                  </span>
-                )}
               </button>
             );
           })}
         </div>
       </header>
 
+      {/* ACTIVE CHOSEN VENTURE PIPELINE BANNER */}
+      {selectedVenture && (
+        <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-transparent border-b border-amber-500/30 px-4 py-2.5 text-xs text-amber-200">
+          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="flex items-center space-x-2">
+              <span className="bg-amber-500 text-slate-950 font-black px-2 py-0.5 rounded text-[10px] uppercase tracking-wider">
+                Active Venture
+              </span>
+              <strong className="text-slate-100 font-bold">{selectedVenture.title}</strong>
+              <span className="text-slate-400 hidden md:inline">({selectedVenture.category} • Budget: ₹{parseInt(finderBudget).toLocaleString("en-IN")})</span>
+            </div>
+
+            <div className="flex items-center space-x-2 text-[11px]">
+              <button
+                onClick={() => setActiveTab("location-scout")}
+                className={`px-2.5 py-1 rounded-lg border transition ${
+                  activeTab === "location-scout" ? "bg-amber-500 text-slate-950 font-bold" : "border-amber-500/30 text-amber-300 hover:bg-slate-800"
+                }`}
+              >
+                1. Scout Spots 📍
+              </button>
+              <button
+                onClick={() => setActiveTab("evaluator")}
+                className={`px-2.5 py-1 rounded-lg border transition ${
+                  activeTab === "evaluator" ? "bg-amber-500 text-slate-950 font-bold" : "border-amber-500/30 text-amber-300 hover:bg-slate-800"
+                }`}
+              >
+                2. Feasibility Plan 📊
+              </button>
+              <button
+                onClick={() => setActiveTab("roadmap")}
+                className={`px-2.5 py-1 rounded-lg border transition ${
+                  activeTab === "roadmap" ? "bg-amber-500 text-slate-950 font-bold" : "border-amber-500/30 text-amber-300 hover:bg-slate-800"
+                }`}
+              >
+                3. Daily Sprint 🗓️
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB 1: AI IDEA MATCHER */}
+        {/* ============================================================== */}
+        {/* TAB 1: AI IDEA MATCHER (5 IDEAS + CHOOSE VENTURE ACTION)       */}
+        {/* ============================================================== */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
               <span className="text-amber-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
                 <Sparkles className="w-4 h-4" />
-                <span>Personalized Opportunity Engine</span>
+                <span>AI Opportunity Matcher</span>
               </span>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Find High-Margin Indian SME Ideas for Your Budget & Skills
+                Generate 5 High-Potential Indian Business Ideas Fitted to Your Constraints
               </h1>
+              <p className="text-sm text-slate-300 mt-1 max-w-3xl">
+                Choose any one of the 5 recommendations to automatically link it across the <strong>Location Scout</strong>, <strong>Feasibility Evaluator</strong>, and <strong>10-Day Sprint Guide</strong>.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
+                  <Target className="w-5 h-5 text-amber-400" />
+                  <span>Input Your Profile</span>
+                </h2>
+
                 <form onSubmit={handleGenerateIdeas} className="space-y-4 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Investment Budget (₹ INR)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Planned Investment Budget (₹ INR)</label>
                     <input
                       type="number"
                       required
                       value={finderBudget}
                       onChange={(e) => setFinderBudget(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Region</label>
                     <input
                       type="text"
                       required
                       value={finderLocation}
                       onChange={(e) => setFinderLocation(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                      placeholder="e.g. Pune, Jaipur, Indore, Ahmedabad, Bengaluru"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Your Skills & Strengths</label>
                     <textarea
@@ -1407,9 +1639,10 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={finderSkills}
                       onChange={(e) => setFinderSkills(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Interests & Hobbies</label>
                     <input
@@ -1417,44 +1650,121 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={finderInterests}
                       onChange={(e) => setFinderInterests(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <button
                     type="submit"
                     disabled={isFindingIdeas}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
                   >
-                    {isFindingIdeas ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Lightbulb className="w-4 h-4" />}
-                    <span>Generate Curated Business Ideas</span>
+                    {isFindingIdeas ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Evaluating 5 Indian SME Models...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lightbulb className="w-4 h-4" />
+                        <span>Generate 5 Tailored Business Ideas</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
 
+              {/* 5 Recommended Ideas with 1-Click Choose Action */}
               <div className="lg:col-span-7 space-y-4">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800">
+                  <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>5 Tailored Opportunities</span>
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    {matchedIdeas ? "Click 'Choose This Idea' to follow into other tabs" : "Awaiting your inputs"}
+                  </span>
+                </div>
+
                 {matchedIdeas ? (
-                  matchedIdeas.map((idea, idx) => (
-                    <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-amber-400 font-bold text-xs">{idea.matchScore}% Match</span>
-                        <span className="text-emerald-400 font-bold text-xs">{idea.monthlyPotential}</span>
+                  matchedIdeas.map((idea, idx) => {
+                    const isSelected = selectedVenture?.id === idea.id || selectedVenture?.title === idea.title;
+                    return (
+                      <div
+                        key={idea.id || idx}
+                        className={`p-5 rounded-3xl transition space-y-3 relative border ${
+                          isSelected
+                            ? "bg-slate-900 border-2 border-amber-500 shadow-xl shadow-amber-500/10"
+                            : "bg-slate-900 border-slate-800 hover:border-slate-700"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-2">
+                            <span className="bg-slate-800 text-amber-400 font-bold text-xs px-2.5 py-0.5 rounded-full border border-slate-700">
+                              #{idx + 1} {idea.category || "Venture"}
+                            </span>
+                            <span className="text-emerald-400 font-bold text-xs">
+                              {idea.matchScore}% Match
+                            </span>
+                          </div>
+
+                          {isSelected ? (
+                            <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-2.5 py-0.5 rounded-full flex items-center space-x-1">
+                              <CheckCircle className="w-3 h-3" />
+                              <span>CHOSEN VENTURE</span>
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">{idea.monthlyPotential}</span>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="text-lg font-extrabold text-slate-100">{idea.title}</h4>
+                          <p className="text-xs text-slate-400 mt-0.5">{idea.tagline}</p>
+                        </div>
+
+                        <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300">
+                          <strong className="text-amber-400">Why it matches you: </strong>
+                          {idea.whyFit}
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                          <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                            <span className="text-[10px] text-slate-500 block">Est. CapEx</span>
+                            <span className="font-bold text-slate-200">{idea.estimatedCapex}</span>
+                          </div>
+                          <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                            <span className="text-[10px] text-slate-500 block">Target Customer</span>
+                            <span className="font-bold text-slate-200 truncate block">{idea.targetAudience}</span>
+                          </div>
+                          <div className="bg-slate-950 p-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                            <span className="text-[10px] text-slate-500 block">Day 1 Action</span>
+                            <span className="font-bold text-amber-300 truncate block">{idea.firstStep}</span>
+                          </div>
+                        </div>
+
+                        {/* CHOOSE VENTURE BUTTON */}
+                        <div className="flex justify-end pt-2">
+                          <button
+                            onClick={() => handleChooseVenture(idea)}
+                            className={`font-bold px-4 py-2.5 rounded-xl text-xs flex items-center space-x-1.5 transition shadow-md ${
+                              isSelected
+                                ? "bg-amber-500 text-slate-950 hover:bg-amber-400"
+                                : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950"
+                            }`}
+                          >
+                            <span>{isSelected ? "Active Plan Selected 🚀" : "Choose This Idea & Build Plan 🚀"}</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
-                      <h4 className="text-lg font-bold text-slate-100">{idea.title}</h4>
-                      <p className="text-xs text-slate-400">{idea.tagline}</p>
-                      <div className="flex justify-end pt-2">
-                        <button
-                          onClick={() => { setBusinessIdea(idea.title); setActiveTab("evaluator"); }}
-                          className="bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1"
-                        >
-                          <span>Build Feasibility Report</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
-                  <div className="h-64 border border-dashed border-slate-800 rounded-3xl flex items-center justify-center text-slate-500 text-xs">
-                    Input your profile to evaluate Indian business opportunities.
+                  <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                    <Lightbulb className="w-10 h-10 text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">Ready to Generate 5 Opportunities</p>
+                    <p className="text-xs max-w-sm mt-1">Submit your profile on the left to evaluate 5 high-potential Indian businesses.</p>
                   </div>
                 )}
               </div>
@@ -1462,32 +1772,44 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         )}
 
-        {/* TAB 2: LOCATION SCOUT */}
+        {/* ============================================================== */}
+        {/* TAB 2: AI MICRO-LOCATION SCOUT (CONNECTED TO CHOSEN VENTURE)   */}
+        {/* ============================================================== */}
         {activeTab === "location-scout" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
               <span className="text-amber-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
                 <MapPin className="w-4 h-4" />
-                <span>AI Commercial Micro-Market Scout</span>
+                <span>Commercial Footfall Scout</span>
               </span>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Discover the Most Profitable Neighborhoods & Streets in Your City
+                Evaluate Best Commercial Spots for {selectedVenture ? `"${selectedVenture.title}"` : "Your Concept"}
               </h1>
+              <p className="text-sm text-slate-300 mt-1 max-w-3xl">
+                Estimates rental rates per sq.ft., footfall profiles (IT corridors vs student belts), and peak hours across {scoutCity}.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
+                  <Compass className="w-5 h-5 text-amber-400" />
+                  <span>City & Rent Parameters</span>
+                </h2>
+
                 <form onSubmit={handleEvaluateLocations} className="space-y-4 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Target Indian City</label>
                     <input
                       type="text"
                       required
+                      placeholder="e.g. Bengaluru, Pune, Jaipur, Ahmedabad, Lucknow"
                       value={scoutCity}
                       onChange={(e) => setScoutCity(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
                     <input
@@ -1495,55 +1817,135 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={scoutConcept}
                       onChange={(e) => setScoutConcept(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Monthly Rent Budget (₹)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Monthly Rent Budget (₹ INR)</label>
                     <input
                       type="number"
                       required
                       value={scoutBudgetRent}
                       onChange={(e) => setScoutBudgetRent(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Footfall Demographic</label>
+                    <select
+                      value={scoutTrafficType}
+                      onChange={(e) => setScoutTrafficType(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                    >
+                      <option>Corporate Tech Park / Startup Office Crowd</option>
+                      <option>High-Street Retail & Weekend Dining Walkers</option>
+                      <option>College / University Hostel & Student Belt</option>
+                      <option>High-Density Gated Societies & Family Residential</option>
+                      <option>Metro Station / Bus Stand Transit Hub</option>
+                    </select>
+                  </div>
+
                   <button
                     type="submit"
                     disabled={isScoutingLocations}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
                   >
-                    {isScoutingLocations ? <RefreshCw className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
-                    <span>Scout Best Micro-Locations</span>
+                    {isScoutingLocations ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Evaluating Micro-Markets in {scoutCity}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-4 h-4" />
+                        <span>Scout Best Micro-Locations</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
 
               <div className="lg:col-span-7 space-y-4">
-                {scoutResults?.locations?.map((loc, idx) => (
-                  <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
-                    <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                      <h3 className="font-bold text-slate-100 text-sm">{loc.name}</h3>
-                      <span className="text-emerald-400 font-bold text-xs">{loc.suitabilityScore}% Match</span>
+                {scoutResults ? (
+                  <div className="space-y-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed">
+                      <strong className="text-amber-400 block font-bold mb-1">City Commercial Verdict:</strong>
+                      {scoutResults.cityOverview}
                     </div>
-                    <div className="text-xs text-slate-400 space-y-1">
-                      <div>Rent: <strong className="text-amber-300">{loc.estimatedRent}</strong></div>
-                      <div>Footfall: <strong className="text-slate-200">{loc.footfallProfile}</strong></div>
-                      <div>Format: <strong className="text-slate-200">{loc.idealFormat}</strong></div>
-                      <div className="text-slate-300 italic">"{loc.verdict}"</div>
+
+                    <div className="space-y-4">
+                      {scoutResults.locations?.map((loc, idx) => (
+                        <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <div>
+                              <h3 className="font-extrabold text-slate-100 text-sm flex items-center space-x-1.5">
+                                <MapPin className="w-4 h-4 text-amber-400" />
+                                <span>{loc.name}</span>
+                              </h3>
+                              <span className="text-[10px] text-slate-400">{loc.zoneType}</span>
+                            </div>
+                            <span className="text-emerald-400 font-bold text-xs">{loc.suitabilityScore}% Location Fit</span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                              <span className="text-[10px] text-slate-500 block">Est. Market Rent</span>
+                              <span className="font-bold text-amber-300 block truncate">{loc.estimatedRent}</span>
+                            </div>
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                              <span className="text-[10px] text-slate-500 block">Competition</span>
+                              <span className="font-bold text-slate-200 block truncate">{loc.competitionDensity}</span>
+                            </div>
+                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                              <span className="text-[10px] text-slate-500 block">Peak Hours</span>
+                              <span className="font-bold text-emerald-400 block truncate">{loc.peakHours}</span>
+                            </div>
+                          </div>
+
+                          <p className="text-xs text-slate-300 italic bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                            "{loc.verdict}"
+                          </p>
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => {
+                                setTargetCity(`${loc.name}, ${scoutCity}`);
+                                setActiveTab("evaluator");
+                              }}
+                              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center space-x-1"
+                            >
+                              <span>Apply Location to Feasibility Plan</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                ) : (
+                  <div className="h-64 border border-dashed border-slate-800 rounded-3xl flex items-center justify-center text-slate-500 text-xs">
+                    Input city and concept on the left to scout top micro-markets.
+                  </div>
+                )}
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 3: BUSINESS EVALUATOR */}
+        {/* ============================================================== */}
+        {/* TAB 3: BUSINESS EVALUATOR (CONNECTED TO CHOSEN VENTURE)        */}
+        {/* ============================================================== */}
         {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3 mb-4">
+                  <Sparkles className="w-5 h-5 text-amber-400" />
+                  <span>Feasibility & Financial Breakdown</span>
+                </h2>
+
                 <form onSubmit={handleEvaluateIdea} className="space-y-4 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Business Concept</label>
@@ -1565,7 +1967,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Planned Capital (₹)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Planned Capital (₹ INR)</label>
                     <input
                       type="number"
                       value={initialCapital}
@@ -1578,21 +1980,36 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     disabled={isAnalyzing}
                     className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2"
                   >
-                    {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Generate Feasibility Report</span>}
+                    {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Run Full Feasibility Audit</span>}
                   </button>
                 </form>
               </div>
 
               <div className="lg:col-span-7">
-                {analysisResult && (
+                {analysisResult ? (
                   <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
                     <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
                     <div className="grid grid-cols-3 gap-3 text-center text-xs">
-                      <div className="bg-slate-950 p-3 rounded-xl">Viability: <span className="font-bold text-emerald-400">{analysisResult.viabilityScore}/10</span></div>
-                      <div className="bg-slate-950 p-3 rounded-xl">Margin: <span className="font-bold text-sky-400">{analysisResult.estimatedMarginPercent}</span></div>
-                      <div className="bg-slate-950 p-3 rounded-xl">Break-Even: <span className="font-bold text-indigo-400">{analysisResult.breakEvenMonths}</span></div>
+                      <div className="bg-slate-950 p-3 rounded-xl">Viability: <span className="font-bold text-emerald-400 block text-lg">{analysisResult.viabilityScore}/10</span></div>
+                      <div className="bg-slate-950 p-3 rounded-xl">Margin: <span className="font-bold text-sky-400 block text-lg">{analysisResult.estimatedMarginPercent}</span></div>
+                      <div className="bg-slate-950 p-3 rounded-xl">Break-Even: <span className="font-bold text-indigo-400 block text-lg">{analysisResult.breakEvenMonths}</span></div>
                     </div>
-                    <p className="text-xs text-slate-300 leading-relaxed">{analysisResult.summary}</p>
+                    <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                      {analysisResult.summary}
+                    </p>
+                    <div className="flex justify-end pt-2">
+                      <button
+                        onClick={() => setActiveTab("roadmap")}
+                        className="bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1"
+                      >
+                        <span>Start 10-Day Sprint Roadmap</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-64 border border-dashed border-slate-800 rounded-3xl flex items-center justify-center text-slate-500 text-xs">
+                    Run audit to review CapEx, OpEx, and break-even projections.
                   </div>
                 )}
               </div>
@@ -1600,51 +2017,93 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         )}
 
-        {/* TAB 4: SPRINT TASKS */}
+        {/* ============================================================== */}
+        {/* TAB 4: UPGRADED DAY-BY-DAY EXECUTION SPRINT                    */}
+        {/* ============================================================== */}
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-                  <Calendar className="w-5 h-5 text-amber-400" />
-                  <span>Daily Task Execution Guide</span>
-                </h2>
-                <span className="text-amber-400 font-bold text-sm">{sprintProgressPercent}% Complete</span>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
+                    <Calendar className="w-5 h-5 text-amber-400" />
+                    <span>Daily Launch Sprint for {selectedVenture ? `"${selectedVenture.title}"` : "Active Plan"}</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Time and budget allocations with AI SOPs for each day.</p>
+                </div>
+                <span className="text-amber-400 font-bold text-sm bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
+                  {sprintProgressPercent}% Complete
+                </span>
               </div>
 
               <div className="space-y-3">
-                {dailySprintTasks.map((t) => (
-                  <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <button onClick={() => toggleDailyTask(t.id)}>
-                        {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
-                      </button>
-                      <div>
-                        <div className="font-bold text-xs text-slate-200">{t.dayTitle}</div>
-                        <div className="text-[11px] text-slate-400">{t.task}</div>
+                {dailySprintTasks.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500 text-xs">
+                    Please go to the <strong>AI Idea Matcher</strong> tab and click "Choose This Idea & Build Plan" to generate your custom 10-day sprint.
+                  </div>
+                ) : (
+                  filteredTasks.map((t) => (
+                    <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <button onClick={() => toggleDailyTask(t.id)}>
+                            {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
+                          </button>
+                          <div>
+                            <div className="font-bold text-xs text-slate-200">{t.dayTitle}</div>
+                            <div className={`text-[11px] ${t.completed ? "line-through text-slate-500" : "text-slate-400"}`}>{t.task}</div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleConsultDailyTaskAI(t)}
+                          className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1"
+                        >
+                          <Bot className="w-3.5 h-3.5" />
+                          <span>AI SOP</span>
+                        </button>
+                      </div>
+
+                      <div className="border-t border-slate-800/80 pt-2 flex items-center justify-between text-[11px]">
+                        {editingNoteId === t.id ? (
+                          <div className="flex items-center space-x-2 w-full">
+                            <input
+                              type="text"
+                              value={tempNoteText}
+                              onChange={(e) => setTempNoteText(e.target.value)}
+                              placeholder="Notes, phone numbers, or quotes..."
+                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100"
+                            />
+                            <button onClick={() => handleSaveTaskNote(t.id)} className="bg-emerald-500 text-slate-950 px-2 py-1 rounded-lg font-bold">Save</button>
+                          </div>
+                        ) : (
+                          <>
+                            <span className="text-slate-400 italic truncate max-w-sm">
+                              {t.notes ? `📝 ${t.notes}` : "No task notes yet."}
+                            </span>
+                            <button
+                              onClick={() => { setEditingNoteId(t.id); setTempNoteText(t.notes || ""); }}
+                              className="text-amber-400 hover:underline flex items-center space-x-1"
+                            >
+                              <FileEdit className="w-3 h-3" />
+                              <span>{t.notes ? "Edit" : "Add Note"}</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleConsultDailyTaskAI(t)}
-                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1"
-                    >
-                      <Bot className="w-3.5 h-3.5" />
-                      <span>SOP</span>
-                    </button>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
             {taskAdviceModal && (
-              <div className="fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4">
+              <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
-                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400">
-                    <X className="w-5 h-5" />
-                  </button>
+                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
                   <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
-                  <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto">
-                    {isLoadingTaskAdvice ? "Generating Indian SME procedure..." : taskAdviceModal.sopText}
+                  <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
+                    {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
                   </div>
                 </div>
               </div>
