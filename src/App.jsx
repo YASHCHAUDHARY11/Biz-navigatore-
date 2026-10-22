@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -57,6 +58,12 @@ const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
+
+// Read from Vercel environment variable
+const VERCEL_ENV_GEMINI_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
+  (typeof process !== "undefined" && (process.env?.REACT_APP_GEMINI_API_KEY || process.env?.NEXT_PUBLIC_GEMINI_API_KEY || process.env?.GEMINI_API_KEY)) ||
+  "";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -127,7 +134,7 @@ export default function BizNavigatorApp() {
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
-  const [adminConsoleTab, setAdminConsoleTab] = useState("txns");
+  const [adminConsoleTab, setAdminConsoleTab] = useState("txns"); // 'txns', 'users'
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
 
   const [inputPaymentId, setInputPaymentId] = useState("");
@@ -147,8 +154,10 @@ export default function BizNavigatorApp() {
   const [lastAiError, setLastAiError] = useState("");
   const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
 
+  // Admin Check
   const isAdminUser = Boolean(currentUser?.role?.toLowerCase() === "admin");
 
+  // Strict Pro Check: Only active if Admin, granted in DB, or verified transaction in DB
   const isUserPro = Boolean(
     currentUser && (
       isAdminUser ||
@@ -242,7 +251,7 @@ export default function BizNavigatorApp() {
   }, [selectedVenture]);
 
   // ==============================================================
-  // GEMINI AI CALLER (FOCUSES ENTIRELY ON VERCEL GEMINI_API_KEY)
+  // GEMINI AI CALLER (USES VERCEL GEMINI_API_KEY ON BACKEND)
   // ==============================================================
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
@@ -254,7 +263,7 @@ export default function BizNavigatorApp() {
 
     setLastAiError("");
 
-    // 1. Primary Route: Backend / Vercel API Route using process.env.GEMINI_API_KEY
+    // 1. Primary Route: Server API using process.env.GEMINI_API_KEY
     try {
       const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
         method: "POST",
@@ -282,16 +291,11 @@ export default function BizNavigatorApp() {
         }
       }
     } catch (err) {
-      console.warn("Server AI proxy call failed, attempting direct Vercel key if available:", err);
+      console.warn("Backend AI call failed, checking client env:", err);
     }
 
-    // 2. Direct Fallback via Vercel Client Environment Variable if present
-    const envKey = (
-      (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
-      (typeof process !== "undefined" && (process.env?.GEMINI_API_KEY || process.env?.REACT_APP_GEMINI_API_KEY)) ||
-      ""
-    ).trim();
-
+    // 2. Direct Fallback if Vercel client variable is present
+    const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
       for (const model of models) {
@@ -300,16 +304,10 @@ export default function BizNavigatorApp() {
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
             {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "x-goog-api-key": envKey
-              },
+              headers: { "Content-Type": "application/json", "x-goog-api-key": envKey },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
-                generationConfig: {
-                  temperature: 0.7,
-                  responseMimeType: "application/json"
-                }
+                generationConfig: { temperature: 0.7, responseMimeType: "application/json" }
               })
             }
           );
@@ -327,9 +325,7 @@ export default function BizNavigatorApp() {
             }
             return textResponse;
           }
-        } catch (e) {
-          console.warn(`Direct fetch failed for ${model}:`, e);
-        }
+        } catch (e) {}
       }
     }
 
@@ -347,7 +343,7 @@ export default function BizNavigatorApp() {
   const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
   const [matchedIdeas, setMatchedIdeas] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_dynamic`);
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_6inputs`);
     return cached ? JSON.parse(cached) : null;
   });
 
@@ -358,15 +354,15 @@ export default function BizNavigatorApp() {
 
     const prompt = `Act as an elite Indian Startup & SME Strategist.
 Generate 5 DISTINCT, CREATIVE, VIABLE Indian business ideas tailored specifically to these 6 USER INPUTS:
-1. Budget / Capital: ₹${finderBudget}
+1. Budget: ₹${finderBudget}
 2. Location: ${finderLocation}
-3. Core Skills: ${finderSkills}
-4. Passions & Interests: ${finderInterests}
+3. Skills: ${finderSkills}
+4. Interests: ${finderInterests}
 5. Working Time: ${finderTime}
 6. Risk Tolerance: ${finderRisk}
 
 Evaluate all 6 inputs together.
-Return ONLY valid JSON matching this exact schema:
+Return ONLY valid JSON matching this schema:
 {
   "ideas": [
     {
@@ -389,9 +385,9 @@ Return ONLY valid JSON matching this exact schema:
 
     if (parsedData?.ideas && Array.isArray(parsedData.ideas) && parsedData.ideas.length > 0) {
       setMatchedIdeas(parsedData.ideas);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_dynamic`, JSON.stringify(parsedData.ideas));
+      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsedData.ideas));
     } else {
-      // Input-Driven Dynamic Synthesis based on their actual 6 parameters if network is offline
+      // Dynamic synthesis based on their exact 6 inputs
       const numBudget = parseInt(finderBudget) || 150000;
       const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
       const cleanSkill = finderSkills.split(",")[0].trim() || "Operations";
@@ -404,7 +400,7 @@ Return ONLY valid JSON matching this exact schema:
           tagline: `High-volume localized retail concept serving ${cleanInterest} in ${cleanLoc}.`,
           category: "Retail Commercial",
           matchScore: 96,
-          whyFit: `Directly leverages your passion for ${cleanInterest} and ${cleanSkill} skills. Designed to run comfortably within your ₹${numBudget.toLocaleString("en-IN")} budget under a ${finderRisk} profile.`,
+          whyFit: `Directly leverages your passion for ${cleanInterest} and ${cleanSkill} skills. Fits within your ₹${numBudget.toLocaleString("en-IN")} budget under a ${finderRisk} profile.`,
           estimatedCapex: `₹${Math.round(numBudget * 0.65).toLocaleString("en-IN")}`,
           monthlyPotential: "₹45,000 - ₹85,000 net profit",
           targetAudience: `Walk-in commuters and neighborhood consumers in ${cleanLoc}`,
@@ -461,12 +457,13 @@ Return ONLY valid JSON matching this exact schema:
       ];
 
       setMatchedIdeas(dynamicSynthesis);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_dynamic`, JSON.stringify(dynamicSynthesis));
+      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(dynamicSynthesis));
     }
 
     setIsFindingIdeas(false);
   };
 
+  // Connects chosen idea across all other features
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
@@ -476,7 +473,7 @@ Return ONLY valid JSON matching this exact schema:
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setActiveTab("location-scout");
-    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools are now tailored to this business.`);
+    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools (Location Scout 📍, Evaluator, and 10-Day Sprint) are now configured for this business.`);
   };
 
   // --- TAB 2: LOCATION SCOUT ---
@@ -623,6 +620,8 @@ Return ONLY valid JSON:
   const [roadmapFilter, setRoadmapFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [tempNoteText, setTempNoteText] = useState("");
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_PREFIX}daily_sprint`, JSON.stringify(dailySprintTasks));
@@ -631,6 +630,13 @@ Return ONLY valid JSON:
   const toggleDailyTask = (id) => {
     const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
+  };
+
+  const handleSaveTaskNote = (id) => {
+    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, notes: tempNoteText } : t));
+    setDailySprintTasks(updated);
+    setEditingNoteId(null);
+    setTempNoteText("");
   };
 
   const handleConsultDailyTaskAI = async (taskItem) => {
@@ -672,6 +678,11 @@ Include:
   const [unitRevenue, setUnitRevenue] = useState(500);
   const [unitVariableCost, setUnitVariableCost] = useState(220);
 
+  const [aiMarginAnalysis, setAiMarginAnalysis] = useState("");
+  const [isAnalyzingMargin, setIsAnalyzingMargin] = useState(false);
+  const [aiLedgerAudit, setAiLedgerAudit] = useState("");
+  const [isAuditingLedger, setIsAuditingLedger] = useState(false);
+
   const [ledgerEntries, setLedgerEntries] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}ledger`);
     return cached ? JSON.parse(cached) : [
@@ -679,6 +690,32 @@ Include:
       { id: 2, desc: "Direct UPI Order Payments", type: "in", amount: 12400, date: "Today" }
     ];
   });
+  const [ledgerDesc, setLedgerDesc] = useState("");
+  const [ledgerAmount, setLedgerAmount] = useState("");
+  const [ledgerType, setLedgerType] = useState("in");
+
+  const handleRunMarginDoctorAI = async () => {
+    setIsAnalyzingMargin(true);
+    const totalUnitCost = Number(costPrice) + Number(shippingCost);
+    const netMargin = (((Number(sellingPrice) - totalUnitCost) / Number(sellingPrice)) * 100).toFixed(1);
+
+    const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
+Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit (ITC).`;
+
+    const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
+    setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in 15% RTO buffer for COD orders and claim your ${gstPercent}% ITC.`);
+    setIsAnalyzingMargin(false);
+  };
+
+  const handleRunLedgerAuditAI = async () => {
+    setIsAuditingLedger(true);
+    const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
+
+    const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 insights on working capital runway, cash leaks, and Udhaar recovery.`;
+    const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.");
+    setAiLedgerAudit(res || "Inflows are steady. Keep 45 days fixed expense buffer and incentivize instant UPI settlements with 2% discount.");
+    setIsAuditingLedger(false);
+  };
 
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
   const totalOut = ledgerEntries.filter((e) => e.type === "out").reduce((s, i) => s + Number(i.amount), 0);
@@ -691,167 +728,171 @@ Include:
   const unitContribution = Number(unitRevenue) - Number(unitVariableCost);
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
 
+  // --- TAB 6: LIVE AI MARKET RADAR ---
+  const [marketTrends, setMarketTrends] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}market_trends`);
+    return cached
+      ? JSON.parse(cached)
+      : [
+          {
+            tag: "Logistics",
+            title: "ONDC Hyperlocal Integration Subsidies",
+            desc: "Local kiranas & retailers utilizing ONDC logistics aggregators can ship within a 5km radius for under ₹30/order."
+          },
+          {
+            tag: "Compliance",
+            title: "IMS (Invoice Management System) Mandate",
+            desc: "New GST input matching rules mandate real-time acceptance of vendor invoices to ensure seamless ITC claims."
+          },
+          {
+            tag: "Festive Trends",
+            title: "Pre-Season Packaging Inventory Buffer",
+            desc: "Corrugated box rates routinely surge prior to peak wedding and festival quarters. Lock in 60-day stock early."
+          }
+        ];
+  });
+  const [isScanningMarket, setIsScanningMarket] = useState(false);
+
+  const handleScanLiveMarketAI = async () => {
+    setIsScanningMarket(true);
+    const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics, Sourcing, Policy). Output JSON:
+{ "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
+
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Macroeconomic SME Analyst.");
+    const parsed = extractJsonFromText(raw);
+    if (parsed?.updates) {
+      setMarketTrends(parsed.updates);
+      localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
+    }
+    setIsScanningMarket(false);
+  };
+
+  // --- FLOATING BIZMENTOR CHAT ---
+  const [chatMessages, setChatMessages] = useState([
+    {
+      sender: "mentor",
+      text: "Namaste! I am your 24/7 BizMentor AI. Ask me about polite udhaar recovery, vendor negotiations, GST compliance, or offline marketing in India!"
+    }
+  ]);
+  const [inputChat, setInputChat] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
+  const handleSendChat = async () => {
+    if (!inputChat.trim()) return;
+    const userText = inputChat;
+    setInputChat("");
+    setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
+    setIsChatLoading(true);
+
+    const prompt = `Question from Indian Entrepreneur: ${userText}\nProvide actionable, culturally astute advice for Indian SME operations.`;
+    const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.");
+    setChatMessages((prev) => [
+      ...prev,
+      { sender: "mentor", text: res || "Always maintain a strict credit period ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests." }
+    ]);
+    setIsChatLoading(false);
+  };
+
+  // Helper for OTP countdown display
   const formatCountdown = (secs) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // ==========================================
-  // AUTHENTICATION (STRICT BACKEND ROUTE)
-  // ==========================================
-  const handleAuthSubmit = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-    setAuthSuccessNotice("");
-    setIsAuthLoading(true);
-
-    const isAdminRequest =
-      authMode === "admin" ||
-      authEmailOrPhone.trim().toLowerCase() === "admin" ||
-      authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL;
-
-    const emailToSend = isAdminRequest ? ADMIN_EMAIL : authEmailOrPhone.trim();
-
+  // ==============================================================
+  // ADMIN CONTROL ACTIONS (MONGODB CONNECTED)
+  // ==============================================================
+  const handleAdminApproveTxn = async (txnId) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          emailOrPhone: emailToSend,
-          password: authPassword.trim(),
-          isAdminMode: isAdminRequest
-        })
+        body: JSON.stringify({ txnId, status: "approved" })
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Authentication failed.");
-
-      setCurrentUser(data.user);
-      setAuthPassword("");
-
-      if (data.user?.role?.toLowerCase() === "admin") {
-        setActiveTab("admin-works");
-        setShowAdminConsoleModal(true);
-      } else {
-        setActiveTab("idea-finder");
-      }
+      if (!res.ok) throw new Error("Approval failed on server");
       fetchDbData();
-    } catch (err) {
-      setAuthError(err.message || "Login failed. Check server connection and credentials.");
-    } finally {
-      setIsAuthLoading(false);
+      alert("Transaction Approved! Pro access granted to user in MongoDB.");
+    } catch (e) {
+      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "approved" } : t));
+      setSubmittedTxns(updated);
+      alert("Updated transaction status.");
     }
   };
 
-  const handleSignupRequestOtp = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-    setIsSendingSignupOtp(true);
-
+  const handleAdminRevokeTxn = async (txnId) => {
     try {
-      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone, name: authFullName })
+        body: JSON.stringify({ txnId, status: "rejected" })
       });
-      if (!res.ok) {
-        res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: authEmailOrPhone })
-        });
-      }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP.");
-      setSignupStep(2);
-      setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
-      setSignupResendCooldown(30);
-      setAuthSuccessNotice(`A verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setIsSendingSignupOtp(false);
+      if (!res.ok) throw new Error("Revocation failed on server");
+      fetchDbData();
+      alert("Transaction marked as Rejected.");
+    } catch (e) {
+      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "rejected" } : t));
+      setSubmittedTxns(updated);
+      alert("Updated transaction status.");
     }
   };
 
-  const handleSignupVerifyAndRegister = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-    setIsAuthLoading(true);
-
+  const handleAdminToggleUserPro = async (emailOrPhone) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: authFullName,
-          emailOrPhone: authEmailOrPhone,
-          businessName: authBusinessName,
-          password: authPassword,
-          otp: signupEnteredOtp.trim()
-        })
+        body: JSON.stringify({ emailOrPhone })
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Verification failed. Invalid OTP code.");
-      setCurrentUser(data.user);
-      setActiveTab("idea-finder");
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setIsAuthLoading(false);
+      if (!res.ok) throw new Error("Toggle failed on server");
+      fetchDbData();
+      alert(`Pro status updated for ${emailOrPhone}`);
+    } catch (e) {
+      alert("Error toggling user pro status.");
     }
   };
 
-  const handleForgotRequestOtp = async (e) => {
+  const handleSubmitVerification = async (e) => {
     e.preventDefault();
-    setAuthError("");
-    setIsSendingOtp(true);
+    setVerificationError("");
 
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to dispatch OTP email.");
-      setOtpStep(2);
-      setOtpSecondsLeft(data.expiresInSeconds || 300);
-      setResendCooldown(30);
-      setAuthSuccessNotice(`OTP sent to ${authEmailOrPhone}. Please check your inbox.`);
-    } catch (err) {
-      setAuthError(err.message);
-    } finally {
-      setIsSendingOtp(false);
+    const cleanId = inputPaymentId.trim();
+    if (!/^pay_[a-zA-Z0-9]{12,24}$/.test(cleanId)) {
+      setVerificationError("Invalid Razorpay ID format! Must start with 'pay_'.");
+      return;
     }
-  };
 
-  const handleForgotVerifyAndReset = async (e) => {
-    e.preventDefault();
-    setAuthError("");
-
+    setIsVerifying(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: authEmailOrPhone,
-          otp: enteredOtp,
-          newPassword: resetNewPassword
+          paymentId: cleanId,
+          userEmail: currentUser?.emailOrPhone,
+          userName: currentUser?.name,
+          plan: selectedPlanForVerification
         })
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Password reset failed.");
-      setAuthMode("login");
-      setAuthSuccessNotice("Password updated in MongoDB! Please log in with your new password.");
+      if (!res.ok) throw new Error(data.error || "Submission failed.");
+
+      await fetchDbData();
+      setShowVerificationModal(false);
+      alert(
+        `Payment ID ${cleanId} stored in MongoDB!\nStatus: PENDING ADMIN APPROVAL.\nYour Pro subscription will activate automatically once the admin approves it.`
+      );
     } catch (err) {
-      setAuthError(err.message);
+      setVerificationError(err.message);
+    } finally {
+      setIsVerifying(false);
     }
   };
 
   // ==========================================
-  // AUTH WALL
+  // AUTH WALL (MODAL OR LANDING)
   // ==========================================
   if (!currentUser) {
     return (
@@ -1120,6 +1161,19 @@ Include:
                 </button>
               </form>
             )}
+
+            {authMode === "login" && (
+              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
+                <span className="text-[11px] text-slate-400">Locked out? </span>
+                <button
+                  type="button"
+                  onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
+                  className="text-[11px] text-amber-400 font-bold hover:underline"
+                >
+                  Recover Password with Real Email OTP 🔑
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1209,6 +1263,7 @@ Include:
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
             { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
+            { id: "market", label: "Live AI Market Radar", icon: FileText },
             ...(isAdminUser
               ? [{ id: "admin-works", label: "Admin Works ⚙️", icon: Settings, highlight: true }]
               : [])
@@ -1265,7 +1320,7 @@ Include:
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB: ADMIN WORKS (WHEN SELECTED VIA TAB OR HEADER) */}
+        {/* TAB: ADMIN WORKS */}
         {activeTab === "admin-works" && isAdminUser && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
@@ -1296,14 +1351,7 @@ Include:
                       <div className="flex items-center space-x-2">
                         {txn.status !== "approved" ? (
                           <button
-                            onClick={async () => {
-                              await fetch(`${API_BASE_URL}/subscriptions/status`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ txnId: txn._id || txn.id, status: "approved" })
-                              });
-                              fetchDbData();
-                            }}
+                            onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
                             className="bg-emerald-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl"
                           >
                             Approve Pro
@@ -1324,7 +1372,6 @@ Include:
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
@@ -1412,7 +1459,7 @@ Include:
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating with Gemini AI...</span>
+                        <span>Evaluating with AI...</span>
                       </>
                     ) : (
                       <>
@@ -1554,8 +1601,17 @@ Include:
 
             <div className="lg:col-span-7">
               {analysisResult && (
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                  <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
+                <div id="printable-report" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+                  <div className="flex justify-between items-center border-b border-slate-800 pb-3">
+                    <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
+                    <button
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Print PDF</span>
+                    </button>
+                  </div>
                   <div className="grid grid-cols-3 gap-3 text-center text-xs">
                     <div className="bg-slate-950 p-3 rounded-xl">Viability: <span className="font-bold text-emerald-400 block text-lg">{analysisResult.viabilityScore}/10</span></div>
                     <div className="bg-slate-950 p-3 rounded-xl">Margin: <span className="font-bold text-sky-400 block text-lg">{analysisResult.estimatedMarginPercent}</span></div>
@@ -1604,49 +1660,382 @@ Include:
                 ))}
               </div>
             </div>
+
+            {taskAdviceModal && (
+              <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
+                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
+                  <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
+                  <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
+                    {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {/* TAB 5: CALCULATORS */}
         {activeTab === "tools" && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">Cost Price (₹)</label>
-                  <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
+                  <button
+                    onClick={handleRunMarginDoctorAI}
+                    disabled={isAnalyzingMargin}
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Price Audit"}</span>
+                  </button>
                 </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Selling Price (₹)</label>
-                  <input type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Cost Price (₹)</label>
+                    <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Selling Price (₹)</label>
+                    <input type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
                 </div>
+                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                  <div>Net Profit: <strong className="text-emerald-400">₹{netProfitUnit.toFixed(1)}</strong></div>
+                  <div>Margin: <strong className="text-amber-400">{netMarginPercent}%</strong></div>
+                </div>
+                {aiMarginAnalysis && (
+                  <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-xs text-amber-200">
+                    {aiMarginAnalysis}
+                  </div>
+                )}
               </div>
-              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                <div>Net Profit: <strong className="text-emerald-400">₹{netProfitUnit.toFixed(1)}</strong></div>
-                <div>Margin: <strong className="text-amber-400">{netMarginPercent}%</strong></div>
+
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+                <h3 className="font-bold text-slate-100 text-sm">Break-Even Calculator</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Overhead/mo (₹)</label>
+                    <input type="number" value={monthlyOverhead} onChange={(e) => setMonthlyOverhead(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Variable Cost/unit (₹)</label>
+                    <input type="number" value={unitVariableCost} onChange={(e) => setUnitVariableCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
+                </div>
+                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                  <div>Required Volume: <strong className="text-emerald-400">{breakEvenUnitsNeeded} Units/mo</strong></div>
+                </div>
               </div>
             </div>
 
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <h3 className="font-bold text-slate-100 text-sm">Break-Even Calculator</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-400 block mb-1">Overhead/mo (₹)</label>
-                  <input type="number" value={monthlyOverhead} onChange={(e) => setMonthlyOverhead(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
-                </div>
-                <div>
-                  <label className="text-slate-400 block mb-1">Variable Cost/unit (₹)</label>
-                  <input type="number" value={unitVariableCost} onChange={(e) => setUnitVariableCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+            {/* Daily Cashflow & Udhaar Ledger */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
+                  <IndianRupee className="w-5 h-5 text-amber-400" />
+                  <span>Daily Cashflow & Udhaar Ledger</span>
+                </h3>
+                <div className="flex items-center space-x-3">
+                  <button
+                    onClick={handleRunLedgerAuditAI}
+                    disabled={isAuditingLedger}
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1"
+                  >
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>{isAuditingLedger ? "Auditing..." : "Run AI Cashflow Audit"}</span>
+                  </button>
+                  <span className="text-xs bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-200">
+                    Net: <strong className={netLedgerBalance >= 0 ? "text-emerald-400" : "text-rose-400"}>₹{netLedgerBalance.toLocaleString("en-IN")}</strong>
+                  </span>
                 </div>
               </div>
-              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                <div>Break-Even Volume: <strong className="text-emerald-400">{breakEvenUnitsNeeded} Units/mo</strong></div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
+                <input
+                  type="text"
+                  placeholder="Transaction details..."
+                  value={ledgerDesc}
+                  onChange={(e) => setLedgerDesc(e.target.value)}
+                  className="sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                />
+                <input
+                  type="number"
+                  placeholder="Amount (₹)"
+                  value={ledgerAmount}
+                  onChange={(e) => setLedgerAmount(e.target.value)}
+                  className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                />
+                <select
+                  value={ledgerType}
+                  onChange={(e) => setLedgerType(e.target.value)}
+                  className="sm:col-span-2 bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-slate-200"
+                >
+                  <option value="in">Cash In (+)</option>
+                  <option value="out">Cash Out (-)</option>
+                </select>
+                <button
+                  onClick={() => {
+                    if (!ledgerDesc || !ledgerAmount) return;
+                    setLedgerEntries([
+                      ...ledgerEntries,
+                      { id: Date.now(), desc: ledgerDesc, amount: Number(ledgerAmount), type: ledgerType, date: "Today" }
+                    ]);
+                    setLedgerDesc("");
+                    setLedgerAmount("");
+                  }}
+                  className="sm:col-span-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center justify-center p-2"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
               </div>
+
+              {aiLedgerAudit && (
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                  <strong className="text-amber-400 block font-bold mb-1">AI Financial Health Diagnosis:</strong>
+                  {aiLedgerAudit}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: LIVE AI MARKET RADAR */}
+        {activeTab === "market" && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-100 flex items-center space-x-2">
+                  <BookOpen className="w-5 h-5 text-amber-400" />
+                  <span>Live Indian SME Market Radar</span>
+                </h2>
+              </div>
+              <button
+                onClick={handleScanLiveMarketAI}
+                disabled={isScanningMarket}
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-2 shadow-md transition"
+              >
+                {isScanningMarket ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                <span>Scan Market Radar Now</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {marketTrends.map((t, idx) => (
+                <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
+                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">
+                    {t.tag}
+                  </span>
+                  <h3 className="font-bold text-slate-100 text-sm">{t.title}</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">{t.desc}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}
       </main>
+
+      {/* 24/7 DOCKED FLOATING BIZMENTOR CHAT */}
+      <div className="fixed bottom-5 right-5 z-50">
+        {!isChatOpen ? (
+          <button
+            onClick={() => setIsChatOpen(true)}
+            className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold px-4 py-3 rounded-full shadow-2xl flex items-center space-x-2 transition transform hover:scale-105"
+          >
+            <MessageSquare className="w-5 h-5" />
+            <span className="text-sm">Ask BizMentor AI 🇮🇳</span>
+          </button>
+        ) : (
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[480px]">
+            <div className="p-3 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
+              </div>
+              <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-200 p-1">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 p-3 overflow-y-auto space-y-3 text-xs">
+              {chatMessages.map((msg, index) => (
+                <div key={index} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                      msg.sender === "user" ? "bg-amber-500 text-slate-950 font-medium" : "bg-slate-800 text-slate-200"
+                    }`}
+                  >
+                    {msg.text}
+                  </div>
+                </div>
+              ))}
+              {isChatLoading && (
+                <div className="text-slate-500 text-[11px] flex items-center space-x-1.5">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>BizMentor is formulating advice...</span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-2 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-1.5">
+              <input
+                type="text"
+                placeholder="Ask about GST, credit, wholesale..."
+                value={inputChat}
+                onChange={(e) => setInputChat(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
+              />
+              <button onClick={handleSendChat} className="bg-amber-500 hover:bg-amber-400 text-slate-950 p-2 rounded-xl">
+                <Send className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SUBSCRIPTION MODAL */}
+      {showPaywallModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
+            <button onClick={() => setShowPaywallModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-2">
+              <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-3 py-1 rounded-full font-bold">
+                BizNavigator Pro Upgrade
+              </span>
+              <h3 className="text-2xl font-black text-slate-100">
+                Free limit reached ({FREE_USAGE_LIMIT}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
+                <div>
+                  <span className="text-xs text-slate-400">Day Pass</span>
+                  <div className="text-2xl font-extrabold text-slate-100 mt-1">₹49</div>
+                  <span className="text-[10px] text-slate-500">24 Hours Access</span>
+                </div>
+                <button
+                  onClick={() => { window.open(PAYMENT_LINKS.dayPass, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                >
+                  <span>Pay ₹49</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+
+              <div className="bg-slate-950 border-2 border-amber-500/80 p-4 rounded-2xl text-center space-y-3 relative flex flex-col justify-between shadow-lg shadow-amber-500/10">
+                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">
+                  MOST POPULAR
+                </span>
+                <div>
+                  <span className="text-xs text-amber-400 font-semibold">Monthly Pro</span>
+                  <div className="text-2xl font-black text-slate-100 mt-1">₹249</div>
+                  <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
+                </div>
+                <button
+                  onClick={() => { window.open(PAYMENT_LINKS.monthlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                >
+                  <span>Pay ₹249</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
+                <div>
+                  <span className="text-xs text-slate-400">3 Months</span>
+                  <div className="text-2xl font-extrabold text-slate-100 mt-1">₹599</div>
+                  <span className="text-[10px] text-emerald-400">Save 20%</span>
+                </div>
+                <button
+                  onClick={() => { window.open(PAYMENT_LINKS.quarterlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                >
+                  <span>Pay ₹599</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+
+            <div className="text-center pt-2">
+              <button
+                onClick={() => { setShowPaywallModal(false); setShowVerificationModal(true); setVerificationError(""); }}
+                className="text-xs text-slate-400 hover:text-amber-400 underline"
+              >
+                Already paid? Submit Razorpay Payment ID for verification
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STRICT PAYMENT VERIFICATION MODAL */}
+      {showVerificationModal && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
+            <button onClick={() => setShowVerificationModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-100">Strict Payment Verification</h3>
+              <p className="text-xs text-slate-400">
+                Provide your official <strong>Razorpay Payment ID</strong> (starts with <code>pay_</code>).
+              </p>
+            </div>
+
+            {verificationError && (
+              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
+                <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
+                <span>{verificationError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitVerification} className="space-y-4 pt-2 text-xs">
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Razorpay Payment ID *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. pay_Pxyz89234abcd"
+                  value={inputPaymentId}
+                  onChange={(e) => setInputPaymentId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-semibold mb-1">Plan Paid For</label>
+                <select
+                  value={selectedPlanForVerification}
+                  onChange={(e) => setSelectedPlanForVerification(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                >
+                  <option>Day Pass (₹49)</option>
+                  <option>Monthly Pro (₹249)</option>
+                  <option>Quarterly Pro (₹599)</option>
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isVerifying}
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+              >
+                {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Submit for Admin Approval</span>}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* ADMIN CONSOLE MODAL */}
       {showAdminConsoleModal && isAdminUser && (
@@ -1656,35 +2045,70 @@ Include:
               <h3 className="font-bold text-slate-100 text-sm">Administrative Works Console (MongoDB)</h3>
               <button onClick={() => setShowAdminConsoleModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {submittedTxns.map((txn) => (
-                <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                  <div>
-                    <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                    <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    {txn.status !== "approved" ? (
-                      <button
-                        onClick={async () => {
-                          await fetch(`${API_BASE_URL}/subscriptions/status`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ txnId: txn._id || txn.id, status: "approved" })
-                          });
-                          fetchDbData();
-                        }}
-                        className="bg-emerald-500 text-slate-950 px-3 py-1 rounded-lg font-bold"
-                      >
-                        Approve Pro
-                      </button>
-                    ) : (
-                      <span className="text-emerald-400 font-bold">Approved</span>
-                    )}
-                  </div>
-                </div>
-              ))}
+
+            <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setAdminConsoleTab("txns")}
+                className={`px-3 py-1 rounded-lg font-bold ${adminConsoleTab === "txns" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
+              >
+                Transactions ({submittedTxns.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminConsoleTab("users")}
+                className={`px-3 py-1 rounded-lg font-bold ${adminConsoleTab === "users" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
+              >
+                Users ({registeredUsersList.length})
+              </button>
             </div>
+
+            {adminConsoleTab === "txns" ? (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {submittedTxns.map((txn) => (
+                  <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <div>
+                      <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
+                      <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {txn.status !== "approved" ? (
+                        <button
+                          onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
+                          className="bg-emerald-500 text-slate-950 px-3 py-1 rounded-lg font-bold"
+                        >
+                          Approve Pro
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
+                          className="bg-rose-950 border border-rose-500/40 text-rose-400 px-3 py-1 rounded-lg font-bold"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto">
+                {registeredUsersList.map((u, i) => (
+                  <div key={u._id || i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <div>
+                      <div className="font-bold text-slate-200">{u.name}</div>
+                      <div className="text-slate-400 text-[11px]">{u.emailOrPhone}</div>
+                    </div>
+                    <button
+                      onClick={() => handleAdminToggleUserPro(u.emailOrPhone)}
+                      className={`px-3 py-1 rounded-lg font-bold ${u.isProUser ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}
+                    >
+                      {u.isProUser ? "Pro Active (Revoke)" : "Grant Pro"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
