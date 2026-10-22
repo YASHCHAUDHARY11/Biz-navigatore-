@@ -8,7 +8,6 @@ import {
   FileText,
   Calculator,
   MessageSquare,
-  Bell,
   Sparkles,
   ArrowRight,
   Download,
@@ -18,7 +17,6 @@ import {
   RefreshCw,
   Send,
   Zap,
-  Award,
   BookOpen,
   X,
   Lightbulb,
@@ -26,7 +24,6 @@ import {
   Target,
   Bot,
   User,
-  LogIn,
   LogOut,
   Lock,
   Mail,
@@ -40,17 +37,14 @@ import {
   Settings,
   Layers,
   KeyRound,
-  ArrowLeft,
   Clock,
   RotateCcw
 } from "lucide-react";
 
-// --- CONFIGURATION CONSTANTS & OFFICIAL RAZORPAY PAYMENT LINKS ---
+const API_BASE_URL = "http://localhost:5000/api";
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
-const ADMIN_EMAIL = "admin@biznavigator.in";
-const ADMIN_SECRET_KEY = "admin123";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -59,19 +53,13 @@ const PAYMENT_LINKS = {
 };
 
 export default function BizNavigatorApp() {
-  // Clear any leaked legacy global Pro flag from previous sessions
-  useEffect(() => {
-    localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
-  }, []);
-
-  // ==========================================
-  // 1. STRICT AUTHENTICATION STATE
-  // ==========================================
+  // Current User Session
   const [currentUser, setCurrentUser] = useState(() => {
-    const savedUser = localStorage.getItem(`${STORAGE_PREFIX}user`);
-    return savedUser ? JSON.parse(savedUser) : null;
+    const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
+    return saved ? JSON.parse(saved) : null;
   });
 
+  // Auth Modes & Form States
   const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'forgot', 'admin'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -79,89 +67,22 @@ export default function BizNavigatorApp() {
   const [authBusinessName, setAuthBusinessName] = useState("");
   const [authError, setAuthError] = useState("");
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Real Email OTP States
+  // Forgot Password States
   const [otpStep, setOtpStep] = useState(1);
-  const [activeOtpCode, setActiveOtpCode] = useState("");
   const [enteredOtp, setEnteredOtp] = useState("");
-  const [otpExpiresAt, setOtpExpiresAt] = useState(null);
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [otpTargetEmail, setOtpTargetEmail] = useState("");
-
-  // EmailJS Direct Service Configuration (Optional live mailer)
-  const [showEmailConfigModal, setShowEmailConfigModal] = useState(false);
-  const [emailJsConfig, setEmailJsConfig] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}emailjs_config`);
-    return cached ? JSON.parse(cached) : { serviceId: "", templateId: "", publicKey: "" };
-  });
-
-  // Forgot Password inputs
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
-  // ==========================================
-  // 2. REGISTERED USERS & AUDIT TRANSACTIONS
-  // ==========================================
-  const [submittedTxns, setSubmittedTxns] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}all_txns`);
-    return cached ? JSON.parse(cached) : [];
-  });
+  // Subscriptions & Users synced from MongoDB
+  const [submittedTxns, setSubmittedTxns] = useState([]);
+  const [registeredUsersList, setRegisteredUsersList] = useState([]);
 
-  const [registeredUsersList, setRegisteredUsersList] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}registered_users`);
-    return cached ? JSON.parse(cached) : [];
-  });
-
-  // =========================================================================
-  // 3. STRICT INDIVIDUAL USER PRO AUTHORIZATION (ZERO LEAKAGE)
-  // =========================================================================
-  // Pro is derived strictly from:
-  // 1. Being the Master Admin
-  // 2. An Admin manually granting Pro (`user.isProUser === true`)
-  // 3. Having a transaction approved by the Administrator
-  const isUserPro = Boolean(
-    currentUser && (
-      currentUser.role === "admin" ||
-      currentUser.isProUser === true ||
-      registeredUsersList.some(
-        (u) =>
-          u.emailOrPhone?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
-          u.isProUser === true
-      ) ||
-      submittedTxns.some(
-        (t) =>
-          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
-          t.status === "approved"
-      )
-    )
-  );
-
-  // Per-User Free Evaluation Counter (strictly stored per email/phone)
-  const getUserUsageCount = () => {
-    if (!currentUser) return 0;
-    const key = `${STORAGE_PREFIX}usage_${currentUser.emailOrPhone?.toLowerCase()}`;
-    return parseInt(localStorage.getItem(key)) || 0;
-  };
-
-  const [evaluationsCount, setEvaluationsCount] = useState(() => getUserUsageCount());
-
-  // Pro Daily Usage Counter
-  const [proDailyCount, setProDailyCount] = useState(
-    () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
-  );
-
-  // Check if current user has a pending verification
-  const userPendingTxn = currentUser
-    ? submittedTxns.find(
-        (t) =>
-          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
-          t.status === "pending"
-      )
-    : null;
-
-  // Modals
+  // Modals & Panels
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
@@ -172,33 +93,79 @@ export default function BizNavigatorApp() {
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // Application States
+  // App Navigation & Tools
   const [activeTab, setActiveTab] = useState("idea-finder");
-  const [apiKey, setApiKey] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || ""
-  );
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || "");
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [notificationNudge, setNotificationNudge] = useState(null);
+  const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
 
-  // Re-sync user-specific evaluations counter on account switch
+  // Live Pro verification derived from user data & MongoDB approvals
+  const isUserPro = Boolean(
+    currentUser && (
+      currentUser.role === "admin" ||
+      currentUser.isProUser === true ||
+      submittedTxns.some(
+        (t) =>
+          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
+          t.status === "approved"
+      )
+    )
+  );
+
+  const evaluationsCount = currentUser?.evaluationsCount || 0;
+
+  const userPendingTxn = currentUser
+    ? submittedTxns.find(
+        (t) =>
+          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
+          t.status === "pending"
+      )
+    : null;
+
+  // Sync session to localStorage
   useEffect(() => {
     if (currentUser) {
-      setEvaluationsCount(getUserUsageCount());
+      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
+    } else {
+      localStorage.removeItem(`${STORAGE_PREFIX}user`);
     }
   }, [currentUser]);
 
-  // Countdown timer effect for OTP
-  useEffect(() => {
-    if (!otpExpiresAt) return;
-    const interval = setInterval(() => {
-      const remaining = Math.max(0, Math.floor((otpExpiresAt - Date.now()) / 1000));
-      setOtpSecondsLeft(remaining);
-      if (remaining <= 0) {
-        clearInterval(interval);
+  // Sync Transactions & User Directory from MongoDB
+  const fetchDbData = async () => {
+    try {
+      const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
+      if (txnsRes.ok) {
+        const txns = await txnsRes.json();
+        setSubmittedTxns(txns);
       }
+
+      if (currentUser?.role === "admin") {
+        const usersRes = await fetch(`${API_BASE_URL}/admin/users`);
+        if (usersRes.ok) {
+          const users = await usersRes.json();
+          setRegisteredUsersList(users);
+        }
+      }
+    } catch (err) {
+      console.warn("Backend API offline or unreachable:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchDbData();
+    }
+  }, [currentUser]);
+
+  // Countdown timer for OTP
+  useEffect(() => {
+    if (otpSecondsLeft <= 0) return;
+    const interval = setInterval(() => {
+      setOtpSecondsLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [otpExpiresAt]);
+  }, [otpSecondsLeft]);
 
   // Resend cooldown timer
   useEffect(() => {
@@ -209,225 +176,203 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
-  // Sync state to localStorage
-  useEffect(() => {
-    localStorage.setItem(`${STORAGE_PREFIX}pro_count`, proDailyCount);
-    localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(submittedTxns));
-    localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(registeredUsersList));
-    localStorage.setItem(`${STORAGE_PREFIX}emailjs_config`, JSON.stringify(emailJsConfig));
-    if (currentUser) {
-      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
-      localStorage.setItem(
-        `${STORAGE_PREFIX}usage_${currentUser.emailOrPhone?.toLowerCase()}`,
-        evaluationsCount
-      );
-    } else {
-      localStorage.removeItem(`${STORAGE_PREFIX}user`);
-    }
-  }, [proDailyCount, currentUser, submittedTxns, registeredUsersList, emailJsConfig, evaluationsCount]);
-
   // ==========================================
-  // REAL EMAIL OTP DISPATCH ENGINE
+  // BACKEND API INTEGRATIONS
   // ==========================================
-  const sendEmailOtp = async (targetEmail, generatedOtp, recipientName = "Entrepreneur", purpose = "Account Security") => {
-    setIsSendingOtp(true);
-    setAuthError("");
 
-    if (emailJsConfig.serviceId && emailJsConfig.templateId && emailJsConfig.publicKey) {
-      try {
-        const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            service_id: emailJsConfig.serviceId,
-            template_id: emailJsConfig.templateId,
-            user_id: emailJsConfig.publicKey,
-            template_params: {
-              to_email: targetEmail,
-              to_name: recipientName,
-              otp_code: generatedOtp,
-              purpose: purpose,
-              app_name: "BizNavigator 🇮🇳"
-            }
-          })
-        });
-
-        if (response.ok) {
-          setIsSendingOtp(false);
-          return { success: true, live: true };
-        }
-      } catch (err) {
-        console.warn("EmailJS Network error:", err);
-      }
-    }
-
-    await new Promise((r) => setTimeout(r, 900));
-    setIsSendingOtp(false);
-    return { success: true, live: false };
-  };
-
-  const triggerOtpGeneration = async (email, purposeText) => {
-    const cleanEmail = email.trim().toLowerCase();
-    const newOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-    setActiveOtpCode(newOtp);
-    setOtpTargetEmail(cleanEmail);
-    setOtpExpiresAt(Date.now() + 5 * 60 * 1000);
-    setOtpSecondsLeft(300);
-    setResendCooldown(30);
-
-    const result = await sendEmailOtp(cleanEmail, newOtp, "Entrepreneur", purposeText);
-
-    setOtpStep(2);
-    if (result.live) {
-      setAuthSuccessNotice(`Live email containing your 6-digit OTP dispatched to ${cleanEmail}. Please check your inbox.`);
-    } else {
-      setAuthSuccessNotice(`Security OTP [${newOtp}] generated for ${cleanEmail}. (Valid for 5:00 minutes).`);
-    }
-  };
-
-  // ==========================================
-  // AUTHENTICATION LOGIC (STRICT SEPARATION)
-  // ==========================================
-  const handleAuthSubmit = (e) => {
+  // Authentication Submission (Register / Login via MongoDB)
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
     setAuthSuccessNotice("");
+    setIsAuthLoading(true);
 
-    const inputAccount = authEmailOrPhone.trim().toLowerCase();
-    const inputPass = authPassword.trim();
+    try {
+      if (authMode === "signup") {
+        const res = await fetch(`${API_BASE_URL}/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: authFullName,
+            emailOrPhone: authEmailOrPhone,
+            businessName: authBusinessName,
+            password: authPassword
+          })
+        });
 
-    // 1. STRICT MANUAL ADMIN LOGIN
-    if (
-      (authMode === "admin" && inputPass === ADMIN_SECRET_KEY) ||
-      (authMode === "login" &&
-        (inputAccount === "admin" || inputAccount === ADMIN_EMAIL) &&
-        inputPass === ADMIN_SECRET_KEY)
-    ) {
-      const adminUser = {
-        name: "Master Administrator",
-        emailOrPhone: ADMIN_EMAIL,
-        businessName: "BizNavigator Headquarters",
-        role: "admin",
-        isProUser: true,
-        joinedAt: new Date().toLocaleDateString("en-IN")
-      };
-      setCurrentUser(adminUser);
-      setAuthError("");
-      setAuthPassword("");
-      alert("Authenticated as Administrator. Administrative console unlocked.");
-      return;
-    }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Registration failed.");
 
-    if (authMode === "admin") {
-      setAuthError("Invalid Admin Secret Key. Access Denied.");
-      return;
-    }
-
-    // 2. SIGN IN CHECK
-    if (!inputAccount || !inputPass) {
-      setAuthError("Please fill in all mandatory fields.");
-      return;
-    }
-
-    const user = registeredUsersList.find(
-      (u) => u.emailOrPhone.toLowerCase() === inputAccount && u.password === inputPass
-    );
-
-    if (!user) {
-      // First-time fallback user creation (strictly non-pro by default)
-      if (registeredUsersList.length === 0) {
-        const defaultUser = {
-          name: authEmailOrPhone.split("@")[0] || "Entrepreneur",
-          emailOrPhone: authEmailOrPhone.trim(),
-          businessName: "Indian SME Enterprise",
-          role: "user",
-          isProUser: false,
-          joinedAt: new Date().toLocaleDateString("en-IN")
-        };
-        setCurrentUser(defaultUser);
-        setRegisteredUsersList([defaultUser]);
+        setCurrentUser(data.user);
         setAuthPassword("");
-        return;
-      }
-      setAuthError("Invalid mobile/email or password.");
-      return;
-    }
+      } else {
+        // Login & Admin Verification
+        const res = await fetch(`${API_BASE_URL}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            emailOrPhone: authEmailOrPhone,
+            password: authPassword,
+            isAdminMode: authMode === "admin"
+          })
+        });
 
-    setCurrentUser(user);
-    setAuthPassword("");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Login failed.");
+
+        setCurrentUser(data.user);
+        setAuthPassword("");
+      }
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
   };
 
-  // FORGOT PASSWORD STEP 1
+  // Forgot Password - Request OTP from MongoDB
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
     setAuthSuccessNotice("");
+    setIsSendingOtp(true);
 
-    const target = authEmailOrPhone.trim().toLowerCase();
-    if (!target) {
-      setAuthError("Please enter your registered email address.");
-      return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmailOrPhone })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to generate OTP.");
+
+      setOtpStep(2);
+      setOtpSecondsLeft(data.expiresInSeconds || 300);
+      setResendCooldown(30);
+      setAuthSuccessNotice(`OTP code [${data.otp}] generated & saved in MongoDB! Valid for 5 minutes.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsSendingOtp(false);
     }
-
-    if (target === "admin" || target === ADMIN_EMAIL) {
-      setAuthError("Admin credentials cannot be recovered via OTP. Use ADMIN_SECRET_KEY.");
-      return;
-    }
-
-    const found = registeredUsersList.find((u) => u.emailOrPhone.toLowerCase() === target);
-    if (!found) {
-      setAuthError("No registered SME account found with this email.");
-      return;
-    }
-
-    await triggerOtpGeneration(target, "Password Reset Verification");
   };
 
-  // FORGOT PASSWORD STEP 2
-  const handleForgotVerifyAndReset = (e) => {
+  // Forgot Password - Verify OTP & Update Password in MongoDB
+  const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
 
-    if (otpSecondsLeft <= 0) {
-      setAuthError("OTP code has expired. Please request a new verification code.");
-      return;
-    }
-
-    if (enteredOtp.trim() !== activeOtpCode) {
-      setAuthError("Invalid 6-digit OTP code. Please enter the correct code sent to your email.");
-      return;
-    }
-
-    if (!resetNewPassword || resetNewPassword.length < 4) {
-      setAuthError("New password must be at least 4 characters long.");
-      return;
-    }
-
     if (resetNewPassword !== resetConfirmPassword) {
-      setAuthError("New Password and Confirm Password do not match.");
+      setAuthError("Passwords do not match.");
       return;
     }
 
-    const updated = registeredUsersList.map((u) => {
-      if (u.emailOrPhone.toLowerCase() === otpTargetEmail.toLowerCase()) {
-        return { ...u, password: resetNewPassword };
-      }
-      return u;
-    });
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmailOrPhone,
+          otp: enteredOtp,
+          newPassword: resetNewPassword
+        })
+      });
 
-    setRegisteredUsersList(updated);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Password reset failed.");
 
-    setOtpStep(1);
-    setEnteredOtp("");
-    setResetNewPassword("");
-    setResetConfirmPassword("");
-    setAuthMode("login");
-    setAuthPassword("");
-    setAuthSuccessNotice("Password updated successfully! Please sign in with your new password.");
+      setOtpStep(1);
+      setEnteredOtp("");
+      setResetNewPassword("");
+      setResetConfirmPassword("");
+      setAuthMode("login");
+      setAuthPassword("");
+      setAuthSuccessNotice("Password updated in MongoDB successfully! Please login with your new password.");
+    } catch (err) {
+      setAuthError(err.message);
+    }
   };
 
-  // Strict Logout (clears session and counters)
+  // Submit Razorpay ID to MongoDB (Saved as 'pending')
+  const handleSubmitVerification = async (e) => {
+    e.preventDefault();
+    setVerificationError("");
+
+    const cleanId = inputPaymentId.trim();
+    if (!/^pay_[a-zA-Z0-9]{12,24}$/.test(cleanId)) {
+      setVerificationError("Invalid Razorpay ID format! Must start with 'pay_'.");
+      return;
+    }
+
+    setIsVerifying(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentId: cleanId,
+          userEmail: currentUser?.emailOrPhone,
+          userName: currentUser?.name,
+          plan: selectedPlanForVerification
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Submission failed.");
+
+      await fetchDbData();
+      setShowVerificationModal(false);
+      alert(
+        `Payment ID ${cleanId} stored in MongoDB!\nStatus: PENDING ADMIN APPROVAL.\nYour Pro subscription will activate automatically once the admin approves it.`
+      );
+    } catch (err) {
+      setVerificationError(err.message);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  // Admin Approve / Reject in MongoDB
+  const handleAdminUpdateTxn = async (txnId, status) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txnId, status })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Action failed.");
+
+      await fetchDbData();
+      alert(`Transaction in MongoDB marked as ${status}!`);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // Admin Manual Toggle Pro in MongoDB
+  const handleAdminTogglePro = async (emailOrPhone) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Toggle failed.");
+
+      await fetchDbData();
+      alert(`Pro status updated in MongoDB for: ${emailOrPhone}`);
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  // Logout
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
       setCurrentUser(null);
@@ -436,154 +381,16 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // ==========================================
-  // PAYMENT & VERIFICATION LOGIC (NO AUTO-APPROVAL)
-  // ==========================================
-  const handleInitiatePayment = (url, planName) => {
-    setSelectedPlanForVerification(planName);
-    window.open(url, "_blank", "noopener,noreferrer");
-    setShowPaywallModal(false);
-    setShowVerificationModal(true);
-    setVerificationError("");
-    setInputPaymentId("");
-  };
-
-  const handleSubmitVerification = (e) => {
-    e.preventDefault();
-    setVerificationError("");
-
-    const cleanId = inputPaymentId.trim();
-    const razorpayPattern = /^pay_[a-zA-Z0-9]{12,24}$/;
-
-    if (!razorpayPattern.test(cleanId)) {
-      setVerificationError(
-        "Invalid Razorpay Payment ID format! A legitimate ID starts with 'pay_' (e.g. pay_Px89N2Kd019J). Please check your receipt."
-      );
-      return;
-    }
-
-    const idAlreadyUsed = submittedTxns.some((t) => t.paymentId === cleanId);
-    if (idAlreadyUsed) {
-      setVerificationError("This Payment ID has already been submitted for verification.");
-      return;
-    }
-
-    setIsVerifying(true);
-
-    setTimeout(() => {
-      setIsVerifying(false);
-
-      // SECURITY FIX: Submissions are strictly PENDING. Pro is NOT granted until Admin approves.
-      const newTxn = {
-        id: `txn_${Date.now()}`,
-        paymentId: cleanId,
-        userEmail: currentUser?.emailOrPhone,
-        userName: currentUser?.name,
-        plan: selectedPlanForVerification,
-        status: "pending", // <--- PENDING APPROVAL
-        submittedAt: new Date().toLocaleString("en-IN")
-      };
-
-      const updated = [newTxn, ...submittedTxns];
-      setSubmittedTxns(updated);
-      setShowVerificationModal(false);
-      alert(
-        `Payment ID ${cleanId} submitted successfully!\n\nStatus: PENDING ADMIN APPROVAL.\nYour Pro subscription will activate automatically as soon as the administrator verifies your payment.`
-      );
-    }, 1200);
-  };
-
-  // Admin Operational Controls (Only the Admin can approve Pro access)
-  const handleAdminApprove = (txnId) => {
-    const targetTxn = submittedTxns.find((t) => t.id === txnId);
-    if (!targetTxn) return;
-
-    const updatedTxns = submittedTxns.map((t) =>
-      t.id === txnId ? { ...t, status: "approved" } : t
-    );
-    setSubmittedTxns(updatedTxns);
-
-    // Grant Pro to the specific user account
-    const updatedUsers = registeredUsersList.map((u) =>
-      u.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()
-        ? { ...u, isProUser: true }
-        : u
-    );
-    setRegisteredUsersList(updatedUsers);
-
-    // If the approved user happens to be the currently logged-in account
-    if (currentUser?.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()) {
-      setCurrentUser((prev) => ({ ...prev, isProUser: true }));
-    }
-
-    alert(`Transaction approved! Pro access unlocked for: ${targetTxn.userEmail}`);
-  };
-
-  const handleAdminRevoke = (txnId) => {
-    const targetTxn = submittedTxns.find((t) => t.id === txnId);
-    if (!targetTxn) return;
-
-    const updatedTxns = submittedTxns.map((t) =>
-      t.id === txnId ? { ...t, status: "rejected" } : t
-    );
-    setSubmittedTxns(updatedTxns);
-
-    const updatedUsers = registeredUsersList.map((u) =>
-      u.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()
-        ? { ...u, isProUser: false }
-        : u
-    );
-    setRegisteredUsersList(updatedUsers);
-
-    if (currentUser?.emailOrPhone?.toLowerCase() === targetTxn.userEmail?.toLowerCase()) {
-      setCurrentUser((prev) => ({ ...prev, isProUser: false }));
-    }
-
-    alert(`Pro access revoked for: ${targetTxn.userEmail}`);
-  };
-
-  const handleAdminGrantUserPro = (userEmail) => {
-    const target = registeredUsersList.find(
-      (u) => u.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()
-    );
-    const nextState = !target?.isProUser;
-
-    const updated = registeredUsersList.map((u) =>
-      u.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()
-        ? { ...u, isProUser: nextState }
-        : u
-    );
-    setRegisteredUsersList(updated);
-
-    if (currentUser?.emailOrPhone?.toLowerCase() === userEmail.toLowerCase()) {
-      setCurrentUser((prev) => ({ ...prev, isProUser: nextState }));
-    }
-
-    alert(`Pro status set to ${nextState ? "ACTIVE" : "INACTIVE"} for: ${userEmail}`);
-  };
-
-  const handleResetSystemLimits = () => {
-    if (window.confirm("Reset daily fair usage counters for all accounts?")) {
-      setProDailyCount(0);
-      setEvaluationsCount(0);
-      alert("System fair-usage counters successfully reset to 0.");
-    }
-  };
-
-  // Helper: AI Calling with strict auth and usage checks
+  // Call Gemini AI & Increment Usage Counter in MongoDB
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
     const isAdmin = currentUser.role === "admin";
 
-    // SECURITY CHECK: If user is not Pro, strictly cap at FREE_USAGE_LIMIT
+    // Strict Free Limit Enforcement
     if (!isAdmin && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
-    }
-    if (!isAdmin && isUserPro && proDailyCount >= PRO_DAILY_LIMIT) {
-      alert("Daily Pro limit (50 requests/day) reached. Resets in 24 hours.");
-      throw new Error("PRO_LIMIT_REACHED");
     }
 
     if (apiKey) {
@@ -601,27 +408,44 @@ export default function BizNavigatorApp() {
         const data = await res.json();
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!isAdmin) {
-          if (isUserPro) {
-            setProDailyCount((p) => p + 1);
-          } else {
-            setEvaluationsCount((p) => p + 1);
-          }
+        // Increment count in MongoDB
+        if (!isAdmin && !isUserPro) {
+          fetch(`${API_BASE_URL}/users/usage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+          })
+            .then((r) => r.json())
+            .then((d) => {
+              if (d.evaluationsCount) {
+                setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
+              }
+            });
         }
+
         return textResponse;
       } catch (err) {
-        console.warn("Gemini API call failed, using fallback.", err);
+        console.warn("Gemini call failed, using fallback:", err);
       }
     }
 
-    await new Promise((r) => setTimeout(r, 1000));
-    if (!isAdmin) {
-      if (isUserPro) {
-        setProDailyCount((p) => p + 1);
-      } else {
-        setEvaluationsCount((p) => p + 1);
-      }
+    await new Promise((r) => setTimeout(r, 900));
+
+    // Fallback usage tracking
+    if (!isAdmin && !isUserPro) {
+      fetch(`${API_BASE_URL}/users/usage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.evaluationsCount) {
+            setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
+          }
+        });
     }
+
     return fallbackData;
   };
 
@@ -668,7 +492,7 @@ Return ONLY valid JSON matching this schema:
           title: "Specialty Chai & Healthy Street-Food Kiosk",
           tagline: "High-volume kiosk near office tech-parks or coaching hubs.",
           matchScore: 95,
-          whyFit: `Capitalizes on your sales & food interest with an initial setup under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
+          whyFit: `Capitalizes on your skills with an initial setup under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
           estimatedCapex: `₹${(finderBudget * 0.65).toFixed(0)}`,
           monthlyPotential: "₹45,000 - ₹85,000 net profit",
           targetAudience: "Tech park employees, college youth & daily commuters",
@@ -700,7 +524,7 @@ Return ONLY valid JSON matching this schema:
     });
 
     try {
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Business Matchmaker. Output JSON only.", fallback);
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Output JSON only.", fallback);
       const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
       setMatchedIdeas(parsed.ideas);
       localStorage.setItem(`${STORAGE_PREFIX}matched_ideas`, JSON.stringify(parsed.ideas));
@@ -790,7 +614,7 @@ Return ONLY valid JSON:
     });
 
     try {
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Investment Strategist. Return JSON only.", fallback);
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist. Return JSON only.", fallback);
       const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
       setAnalysisResult(parsed);
       localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(parsed));
@@ -1031,9 +855,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // ==============================================================
-  // STRICT AUTH WALL WITH DEDICATED FORGOT PASSWORD TAB & EMAIL OTP
-  // ==============================================================
+  // STRICT AUTH WALL WITH MONGODB INTEGRATION
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
@@ -1048,7 +870,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               BizNavigator 🇮🇳
             </h1>
             <p className="text-xs text-slate-400 font-medium">
-              India's AI-Powered SME Operating System & Launch Suite
+              Connected to MongoDB Atlas Database
             </p>
           </div>
 
@@ -1094,11 +916,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <Crown className="w-3.5 h-3.5" />
+                <Crown className="w-3 h-3" />
                 <span>Admin 🛡️</span>
               </button>
             </div>
 
+            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -1106,6 +929,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
+            {/* Success Notification */}
             {authSuccessNotice && (
               <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
                 <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
@@ -1120,7 +944,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <div>
                     <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
                       <KeyRound className="w-4 h-4 text-amber-400" />
-                      <span>Email OTP Password Recovery</span>
+                      <span>MongoDB OTP Password Reset</span>
                     </h3>
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {otpStep === 1
@@ -1128,13 +952,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         : "Step 2: Enter code & set new password"}
                     </p>
                   </div>
-                  <button
-                    onClick={() => setShowEmailConfigModal(true)}
-                    title="Configure Live Email Service"
-                    className="p-1 rounded-lg border border-slate-700 text-slate-400 hover:text-amber-400 text-[10px]"
-                  >
-                    <Settings className="w-3.5 h-3.5" />
-                  </button>
                 </div>
 
                 {otpStep === 1 ? (
@@ -1164,12 +981,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       {isSendingOtp ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Dispatching Security OTP to Email...</span>
+                          <span>Generating & Sending OTP...</span>
                         </>
                       ) : (
                         <>
                           <Send className="w-3.5 h-3.5" />
-                          <span>Generate & Dispatch OTP to Email</span>
+                          <span>Generate & Dispatch OTP</span>
                         </>
                       )}
                     </button>
@@ -1232,7 +1049,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       <button
                         type="button"
                         disabled={resendCooldown > 0 || isSendingOtp}
-                        onClick={() => triggerOtpGeneration(otpTargetEmail, "Resend Password Reset OTP")}
+                        onClick={handleForgotRequestOtp}
                         className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
                       >
                         <RotateCcw className="w-3 h-3" />
@@ -1252,7 +1069,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       type="submit"
                       className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
                     >
-                      Verify OTP & Update Password
+                      Update Password in MongoDB
                     </button>
                   </form>
                 )}
@@ -1276,9 +1093,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         className="w-full bg-slate-950 border border-rose-500/40 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-rose-400 font-mono text-xs"
                       />
                     </div>
-                    <span className="text-[10px] text-slate-500 block mt-1">
-                      Enter master administrative credentials to unlock system operations.
-                    </span>
                   </div>
                 ) : (
                   <>
@@ -1367,22 +1181,31 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
                 <button
                   type="submit"
-                  className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg ${
+                  disabled={isAuthLoading}
+                  className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 ${
                     authMode === "admin"
                       ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 shadow-rose-500/20"
                       : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20"
                   }`}
                 >
-                  {authMode === "admin"
-                    ? "Authenticate Admin Credentials 🛡️"
-                    : authMode === "login"
-                    ? "Sign In & Access Platform"
-                    : "Register & Start Free"}
+                  {isAuthLoading ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Syncing with MongoDB Database...</span>
+                    </>
+                  ) : (
+                    <span>
+                      {authMode === "admin"
+                        ? "Authenticate Admin Credentials 🛡️"
+                        : authMode === "login"
+                        ? "Sign In via MongoDB"
+                        : "Register Account in MongoDB"}
+                    </span>
+                  )}
                 </button>
               </form>
             )}
 
-            {/* Recovery Prompt Box on Login Tab */}
             {authMode === "login" && (
               <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
                 <span className="text-[11px] text-slate-400">Locked out of your account? </span>
@@ -1400,79 +1223,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </button>
               </div>
             )}
-
-            <div className="text-[10px] text-slate-500 text-center space-y-1">
-              <p>🔒 Strictly protected SME platform. Manual login authentication required.</p>
-            </div>
           </div>
         </div>
-
-        {/* MODAL: LIVE EMAILJS CONFIGURATION */}
-        {showEmailConfigModal && (
-          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-md w-full space-y-4 relative shadow-2xl text-xs">
-              <button
-                onClick={() => setShowEmailConfigModal(false)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-200"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
-                <Mail className="w-5 h-5 text-amber-400" />
-                <h3 className="font-bold text-slate-100 text-sm">EmailJS Live Email Delivery Settings</h3>
-              </div>
-
-              <p className="text-slate-400 text-[11px] leading-relaxed">
-                Connect your free EmailJS account to send live OTP emails directly from the client without a backend.
-              </p>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">Service ID</label>
-                  <input
-                    type="text"
-                    placeholder="service_xxxx"
-                    value={emailJsConfig.serviceId}
-                    onChange={(e) => setEmailJsConfig({ ...emailJsConfig, serviceId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">Template ID</label>
-                  <input
-                    type="text"
-                    placeholder="template_xxxx"
-                    value={emailJsConfig.templateId}
-                    onChange={(e) => setEmailJsConfig({ ...emailJsConfig, templateId: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-slate-300 font-semibold block mb-1">Public Key</label>
-                  <input
-                    type="text"
-                    placeholder="public_key_xxxx"
-                    value={emailJsConfig.publicKey}
-                    onChange={(e) => setEmailJsConfig({ ...emailJsConfig, publicKey: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-2">
-                <button
-                  onClick={() => setShowEmailConfigModal(false)}
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl"
-                >
-                  Save & Apply Settings
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -1500,7 +1252,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
-            {/* Admin Badge & Dedicated Administrative Works Button */}
             {currentUser.role === "admin" ? (
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
@@ -1509,7 +1260,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </div>
 
                 <button
-                  onClick={() => setShowAdminConsoleModal(true)}
+                  onClick={() => {
+                    fetchDbData();
+                    setShowAdminConsoleModal(true);
+                  }}
                   className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 transition transform hover:scale-105"
                 >
                   <Settings className="w-3.5 h-3.5" />
@@ -1517,13 +1271,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </button>
               </div>
             ) : isUserPro ? (
-              /* User has verified Pro status */
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT})</span>
               </div>
             ) : (
-              /* Regular Free User */
               <div className="flex items-center space-x-2">
                 <span className="text-xs text-slate-400 hidden sm:inline">
                   Free checks: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
@@ -1564,7 +1316,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           {[
             { id: "idea-finder", label: "AI Idea Matcher", icon: Lightbulb },
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
-            { id: "roadmap", label: `Execution Roadmap (${progressPercent}%)`, icon: CheckCircle2 },
+            { id: "roadmap", label: `Execution Roadmap`, icon: CheckCircle2 },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
             { id: "market", label: "Live AI Market Radar", icon: FileText }
           ].map((tab) => {
@@ -1595,7 +1347,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             <span className="flex items-center space-x-2">
               <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
               <span>
-                Payment Verification Pending: Payment ID <strong>{userPendingTxn.paymentId}</strong> is awaiting Administrator confirmation. Pro features will unlock upon approval.
+                Payment Verification Pending: Payment ID <strong>{userPendingTxn.paymentId}</strong> is saved in MongoDB awaiting Administrator confirmation. Pro features will unlock upon approval.
               </span>
             </span>
           </div>
@@ -1866,21 +1618,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <CheckCircle2 className="w-6 h-6 text-amber-400" />
                     <span>Launch Roadmap with AI Task Doctor</span>
                   </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Click <strong>"AI Unblock Task"</strong> on any milestone to get local sourcing hubs, scripts, and compliance advice.
-                  </p>
                 </div>
-                <div className="text-right">
-                  <span className="text-2xl font-black text-amber-400">{progressPercent}%</span>
-                  <span className="text-xs text-slate-400 block">Completed</span>
-                </div>
-              </div>
-
-              <div className="w-full bg-slate-950 h-3 rounded-full mt-6 overflow-hidden border border-slate-800">
-                <div
-                  className="bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 h-full transition-all duration-500 rounded-full"
-                  style={{ width: `${progressPercent}%` }}
-                />
               </div>
 
               <div className="mt-8 space-y-3">
@@ -2094,7 +1832,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <IndianRupee className="w-5 h-5 text-amber-400" />
                     <span>Daily Cashflow & Udhaar Ledger</span>
                   </h3>
-                  <p className="text-xs text-slate-400">Keep daily transaction records audited with automated AI checks.</p>
                 </div>
                 <div className="flex items-center space-x-3">
                   <button
@@ -2103,7 +1840,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 disabled:opacity-50"
                   >
                     <Bot className="w-3.5 h-3.5" />
-                    <span>{isAuditingLedger ? "Auditing Inflows..." : "Run AI Cashflow Audit"}</span>
+                    <span>{isAuditingLedger ? "Auditing..." : "Run AI Cashflow Audit"}</span>
                   </button>
                   <div className="bg-slate-950 px-4 py-2 rounded-2xl border border-slate-800 text-xs">
                     <span className="text-slate-400 block text-[10px]">Net Balance</span>
@@ -2117,7 +1854,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
                 <input
                   type="text"
-                  placeholder="Transaction details (e.g. Bulk packaging box payment)"
+                  placeholder="Transaction details..."
                   value={ledgerDesc}
                   onChange={(e) => setLedgerDesc(e.target.value)}
                   className="sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
@@ -2195,9 +1932,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <BookOpen className="w-5 h-5 text-amber-400" />
                   <span>Live Indian SME Market Radar</span>
                 </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Run live AI market scans for current policy adjustments, commodity pricing trends, and logistics hacks.
-                </p>
               </div>
               <button
                 onClick={handleScanLiveMarketAI}
@@ -2311,7 +2045,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 Free limit reached (5/5). Upgrade to Pro for unlimited evaluations.
               </h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification by the Administrator.
+                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification by the Administrator in MongoDB.
               </p>
             </div>
 
@@ -2323,7 +2057,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-slate-500">24 Hours Access</span>
                 </div>
                 <button
-                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.dayPass, "Day Pass (₹49)")}
+                  onClick={() => {
+                    window.open(PAYMENT_LINKS.dayPass, "_blank");
+                    setShowPaywallModal(false);
+                    setShowVerificationModal(true);
+                  }}
                   className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
                   <span>Pay ₹49</span>
@@ -2341,7 +2079,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
                 </div>
                 <button
-                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.monthlyPro, "Monthly Pro (₹249)")}
+                  onClick={() => {
+                    window.open(PAYMENT_LINKS.monthlyPro, "_blank");
+                    setShowPaywallModal(false);
+                    setShowVerificationModal(true);
+                  }}
                   className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 shadow-md"
                 >
                   <span>Pay ₹249</span>
@@ -2356,7 +2098,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-emerald-400">Save 20%</span>
                 </div>
                 <button
-                  onClick={() => handleInitiatePayment(PAYMENT_LINKS.quarterlyPro, "Quarterly Pro (₹599)")}
+                  onClick={() => {
+                    window.open(PAYMENT_LINKS.quarterlyPro, "_blank");
+                    setShowPaywallModal(false);
+                    setShowVerificationModal(true);
+                  }}
                   className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
                 >
                   <span>Pay ₹599</span>
@@ -2448,7 +2194,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 {isVerifying ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Submitting for Verification...</span>
+                    <span>Submitting to MongoDB...</span>
                   </>
                 ) : (
                   <>
@@ -2462,9 +2208,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* EXCLUSIVE ADMIN WORKS CONSOLE (TRIGGERED VIA BUTTON)           */}
-      {/* ============================================================== */}
+      {/* EXCLUSIVE ADMIN WORKS CONSOLE (CONNECTED TO MONGODB) */}
       {showAdminConsoleModal && currentUser?.role === "admin" && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 sm:p-8 max-w-3xl w-full space-y-5 relative shadow-2xl max-h-[90vh] flex flex-col">
@@ -2482,12 +2226,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </div>
                 <div>
                   <h3 className="font-extrabold text-slate-100 text-lg flex items-center space-x-2">
-                    <span>Administrative Works Console</span>
+                    <span>Administrative Works Console (MongoDB Connected)</span>
                     <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full border border-rose-500/40">
                       MASTER ADMIN
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400">Manage subscriptions, audit payments, and configure system rules.</p>
+                  <p className="text-xs text-slate-400">Approve payments and toggle Pro access directly in your MongoDB Atlas database.</p>
                 </div>
               </div>
             </div>
@@ -2502,7 +2246,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 }`}
               >
                 <ShieldCheck className="w-3.5 h-3.5" />
-                <span>Payment Verifications ({submittedTxns.length})</span>
+                <span>MongoDB Payment Verifications ({submittedTxns.length})</span>
               </button>
               <button
                 onClick={() => setAdminConsoleTab("users")}
@@ -2513,30 +2257,19 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 }`}
               >
                 <Users className="w-3.5 h-3.5" />
-                <span>User Directory ({registeredUsersList.length})</span>
-              </button>
-              <button
-                onClick={() => setAdminConsoleTab("system")}
-                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition ${
-                  adminConsoleTab === "system"
-                    ? "bg-rose-500 text-slate-950"
-                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>System Operations</span>
+                <span>MongoDB Users ({registeredUsersList.length})</span>
               </button>
             </div>
 
-            {/* TAB CONTENT 1: TRANSACTIONS & APPROVALS */}
+            {/* TAB CONTENT 1: MONGODB TRANSACTIONS */}
             {adminConsoleTab === "txns" && (
               <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
                 {submittedTxns.length === 0 ? (
-                  <div className="text-center py-10 text-slate-500">No payment verification logs found.</div>
+                  <div className="text-center py-10 text-slate-500">No payment verification logs found in MongoDB.</div>
                 ) : (
                   submittedTxns.map((txn) => (
                     <div
-                      key={txn.id}
+                      key={txn._id || txn.id}
                       className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
                     >
                       <div>
@@ -2557,20 +2290,22 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         <div className="text-slate-400 text-[11px] mt-1">
                           User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
                         </div>
-                        <div className="text-slate-500 text-[10px]">{txn.submittedAt}</div>
+                        <div className="text-slate-500 text-[10px]">
+                          {txn.createdAt ? new Date(txn.createdAt).toLocaleString("en-IN") : "Recent"}
+                        </div>
                       </div>
 
                       <div className="flex items-center space-x-2">
                         {txn.status !== "approved" ? (
                           <button
-                            onClick={() => handleAdminApprove(txn.id)}
+                            onClick={() => handleAdminUpdateTxn(txn._id || txn.id, "approved")}
                             className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition"
                           >
                             Approve Pro
                           </button>
                         ) : (
                           <button
-                            onClick={() => handleAdminRevoke(txn.id)}
+                            onClick={() => handleAdminUpdateTxn(txn._id || txn.id, "rejected")}
                             className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-xs transition"
                           >
                             Revoke Pro
@@ -2583,15 +2318,15 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* TAB CONTENT 2: USER DIRECTORY & MANUAL GRANTS */}
+            {/* TAB CONTENT 2: MONGODB USERS */}
             {adminConsoleTab === "users" && (
               <div className="flex-1 overflow-y-auto space-y-2.5 text-xs">
                 {registeredUsersList.length === 0 ? (
-                  <div className="text-slate-500 text-center py-10">No users registered yet.</div>
+                  <div className="text-slate-500 text-center py-10">No users found in MongoDB.</div>
                 ) : (
                   registeredUsersList.map((usr, i) => (
                     <div
-                      key={i}
+                      key={usr._id || i}
                       className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between"
                     >
                       <div>
@@ -2600,7 +2335,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         <span className="text-[10px] text-amber-400 block">{usr.businessName}</span>
                       </div>
                       <button
-                        onClick={() => handleAdminGrantUserPro(usr.emailOrPhone)}
+                        onClick={() => handleAdminTogglePro(usr.emailOrPhone)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition ${
                           usr.isProUser
                             ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40"
@@ -2612,33 +2347,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     </div>
                   ))
                 )}
-              </div>
-            )}
-
-            {/* TAB CONTENT 3: SYSTEM CONTROLS & QUOTA RESETS */}
-            {adminConsoleTab === "system" && (
-              <div className="flex-1 overflow-y-auto space-y-4 text-xs">
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                  <h4 className="font-bold text-slate-200">Global Quotas & Maintenance</h4>
-                  <p className="text-slate-400 text-[11px]">
-                    Reset all daily fair usage limits (FUP) for all active free and pro users in emergencies.
-                  </p>
-                  <button
-                    onClick={handleResetSystemLimits}
-                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition"
-                  >
-                    Reset System Daily FUP Limits
-                  </button>
-                </div>
-
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                  <h4 className="font-bold text-slate-200">Payment Gateway Configuration</h4>
-                  <div className="text-slate-400 space-y-1 font-mono text-[11px]">
-                    <div>Day Pass (₹49): {PAYMENT_LINKS.dayPass}</div>
-                    <div>Monthly Pro (₹249): {PAYMENT_LINKS.monthlyPro}</div>
-                    <div>Quarterly Pro (₹599): {PAYMENT_LINKS.quarterlyPro}</div>
-                  </div>
-                </div>
               </div>
             )}
           </div>
