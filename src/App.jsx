@@ -38,10 +38,16 @@ import {
   Layers,
   KeyRound,
   Clock,
-  RotateCcw
+  RotateCcw,
+  MapPin,
+  Compass,
+  Calendar,
+  Filter,
+  Flame,
+  FileEdit
 } from "lucide-react";
 
-// --- CONFIGURATION CONSTANTS, MONGODB API & OFFICIAL CREDENTIALS ---
+// --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
 const API_BASE_URL = typeof window !== "undefined" && window.location.hostname === "localhost"
   ? "http://localhost:5000/api"
   : "/api";
@@ -111,14 +117,13 @@ export default function BizNavigatorApp() {
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // App Navigation & Tools
+  // App Navigation
   const [activeTab, setActiveTab] = useState("idea-finder");
   
-  // Custom API Key Override (if user inputs one in settings, otherwise uses Vercel Env)
+  // Custom API Key Override
   const [apiKey, setApiKey] = useState(
     () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || VERCEL_ENV_GEMINI_KEY
   );
-  const [showKeyModal, setShowKeyModal] = useState(false);
   const [proDailyCount, setProDailyCount] = useState(
     () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
   );
@@ -182,26 +187,92 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
-  // Countdown timer for OTP
+  // Countdown timers
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
-    const interval = setInterval(() => {
-      setOtpSecondsLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
+    const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(interval);
   }, [otpSecondsLeft]);
 
-  // Resend cooldown timer
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const interval = setInterval(() => {
-      setResendCooldown((prev) => Math.max(0, prev - 1));
-    }, 1000);
+    const interval = setInterval(() => setResendCooldown((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
   // ==========================================
-  // BACKEND API INTEGRATIONS
+  // CENTRALIZED GEMINI AI EVALUATION ENGINE
+  // ==========================================
+  const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
+    if (!currentUser) throw new Error("AUTH_REQUIRED");
+
+    const isAdmin = currentUser.role === "admin";
+    if (!isAdmin && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
+      setShowPaywallModal(true);
+      throw new Error("LIMIT_REACHED");
+    }
+
+    try {
+      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, systemInstruction, userEmail: currentUser.emailOrPhone })
+      });
+
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        if (serverData.text) {
+          if (!isAdmin && !isUserPro) {
+            setCurrentUser((p) => ({ ...p, evaluationsCount: (p.evaluationsCount || 0) + 1 }));
+          }
+          return serverData.text;
+        }
+      }
+    } catch (e) {}
+
+    const activeKey = (apiKey || VERCEL_ENV_GEMINI_KEY).trim();
+    if (activeKey) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-goog-api-key": activeKey },
+            body: JSON.stringify({ contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }] })
+          }
+        );
+
+        const data = await response.json();
+        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (textResponse) {
+          if (!isAdmin && !isUserPro) {
+            fetch(`${API_BASE_URL}/users/usage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+            })
+              .then((r) => r.json())
+              .then((d) => {
+                if (d.evaluationsCount) {
+                  setCurrentUser((p) => ({ ...p, evaluationsCount: d.evaluationsCount }));
+                }
+              })
+              .catch(() => {});
+          }
+          return textResponse;
+        }
+      } catch (err) {
+        console.warn("Direct Gemini call failed:", err);
+      }
+    }
+
+    await new Promise((r) => setTimeout(r, 900));
+    return fallbackData;
+  };
+
+  // ==========================================
+  // AUTHENTICATION LOGIC (MONGODB)
   // ==========================================
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -324,7 +395,6 @@ export default function BizNavigatorApp() {
     }
 
     setIsVerifying(true);
-
     try {
       const res = await fetch(`${API_BASE_URL}/subscriptions/submit`, {
         method: "POST",
@@ -359,10 +429,8 @@ export default function BizNavigatorApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ txnId, status })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Action failed.");
-
       await fetchDbData();
       alert(`Transaction in MongoDB marked as ${status}!`);
     } catch (err) {
@@ -377,10 +445,8 @@ export default function BizNavigatorApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emailOrPhone })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Toggle failed.");
-
       await fetchDbData();
       alert(`Pro status updated in MongoDB for: ${emailOrPhone}`);
     } catch (err) {
@@ -397,115 +463,12 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // CENTRALIZED GEMINI AI EVALUATION ENGINE
-  // (Uses Vercel Environment Variable or Serverless Proxy)
+  // TAB 1: AI IDEA MATCHER
   // ==========================================
-  const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
-    if (!currentUser) throw new Error("AUTH_REQUIRED");
-
-    const isAdmin = currentUser.role === "admin";
-
-    // Strict Free Limit Enforcement
-    if (!isAdmin && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
-      setShowPaywallModal(true);
-      throw new Error("LIMIT_REACHED");
-    }
-
-    // Attempt 1: Route through backend / Vercel Serverless Function (Server holds key safely)
-    try {
-      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          systemInstruction,
-          userEmail: currentUser.emailOrPhone
-        })
-      });
-
-      if (serverRes.ok) {
-        const serverData = await serverRes.json();
-        if (serverData.text) {
-          if (!isAdmin && !isUserPro) {
-            setCurrentUser((prev) => ({ ...prev, evaluationsCount: (prev.evaluationsCount || 0) + 1 }));
-          }
-          return serverData.text;
-        }
-      }
-    } catch (e) {
-      // Backend proxy unavailable, proceed to client-side env variable
-    }
-
-    // Attempt 2: Direct call using Vercel injected key
-    const activeKey = (apiKey || VERCEL_ENV_GEMINI_KEY).trim();
-
-    if (activeKey) {
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": activeKey
-            },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }]
-            })
-          }
-        );
-
-        const data = await response.json();
-        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (textResponse) {
-          if (!isAdmin && !isUserPro) {
-            fetch(`${API_BASE_URL}/users/usage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-            })
-              .then((r) => r.json())
-              .then((d) => {
-                if (d.evaluationsCount) {
-                  setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
-                }
-              })
-              .catch(() => {});
-          }
-          return textResponse;
-        }
-      } catch (err) {
-        console.warn("Direct Gemini call failed:", err);
-      }
-    }
-
-    // Attempt 3: Intelligent fallback simulation
-    await new Promise((r) => setTimeout(r, 900));
-
-    if (!isAdmin && !isUserPro) {
-      fetch(`${API_BASE_URL}/users/usage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-      })
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.evaluationsCount) {
-            setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
-          }
-        })
-        .catch(() => {});
-    }
-
-    return fallbackData;
-  };
-
-  // --- TAB 1: AI IDEA MATCHER ---
   const [finderBudget, setFinderBudget] = useState("100000");
-  const [finderLocation, setFinderLocation] = useState("Tier-2 City (e.g., Jaipur, Indore, Surat, Coimbatore)");
+  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Corridor)");
   const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media Handling");
-  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Eco-friendly Products, Local Retail");
+  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Specialty Beverages, Local Retail");
   const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
   const [finderRisk, setFinderRisk] = useState("Moderate (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
@@ -595,9 +558,109 @@ Return ONLY valid JSON matching this schema:
     setActiveTab("evaluator");
   };
 
-  // --- TAB 2: BUSINESS EVALUATOR ---
+  // ==============================================================
+  // TAB 2: AI MICRO-LOCATION SCOUT (NEW FEATURE)
+  // ==========================================
+  const [scoutCity, setScoutCity] = useState("Bengaluru");
+  const [scoutConcept, setScoutConcept] = useState("Specialty Quick Chai & Snacks Kiosk");
+  const [scoutBudgetRent, setScoutBudgetRent] = useState("25000");
+  const [scoutTrafficType, setScoutTrafficType] = useState("Corporate Tech Park / Office Crowd");
+  const [isScoutingLocations, setIsScoutingLocations] = useState(false);
+  const [scoutResults, setScoutResults] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}location_scout`);
+    return cached ? JSON.parse(cached) : null;
+  });
+
+  const handleEvaluateLocations = async (e) => {
+    e.preventDefault();
+    setIsScoutingLocations(true);
+
+    const prompt = `Act as an expert Indian Commercial Real Estate & Retail Expansion Strategist.
+Evaluate the best micro-locations in the Indian city of "${scoutCity}" for the business: "${scoutConcept}".
+Target Monthly Rent: Up to ₹${scoutBudgetRent}
+Desired Footfall Type: ${scoutTrafficType}
+
+Suggest 3 to 4 realistic, specific neighborhoods/commercial streets in ${scoutCity}.
+Return ONLY valid JSON matching this schema:
+{
+  "cityOverview": "2-sentence commercial summary of ${scoutCity} for this business niche.",
+  "locations": [
+    {
+      "name": "Exact Neighborhood / Market Street (e.g., Koramangala 5th Block or Manyata Backgate)",
+      "zoneType": "High-Street F&B / Office Hub / Transit Hub / Student Hub",
+      "suitabilityScore": 94,
+      "estimatedRent": "₹110 - ₹160 / sq.ft (Approx ₹22,000/mo for 150 sq.ft)",
+      "footfallProfile": "Techies, startup employees, evening transit crowd",
+      "competitionDensity": "Moderate (3 existing stalls within 400m)",
+      "peakHours": "8:30 AM - 11:00 AM & 4:30 PM - 8:30 PM",
+      "idealFormat": "100-150 sq.ft takeaway counter or semi-kiosk with outdoor standing tables",
+      "verdict": "Why this specific zone gives the fastest cash conversion."
+    }
+  ]
+}`;
+
+    const fallback = JSON.stringify({
+      cityOverview: `Strong retail consumption corridor in ${scoutCity}. Given your rent budget of ₹${parseInt(scoutBudgetRent).toLocaleString("en-IN")}/month, focus on secondary high-footfall transit connectors rather than flagship arterial road frontage.`,
+      locations: [
+        {
+          name: "HSR Layout - Sector 1 & Sector 2 Main Road",
+          zoneType: "Startup Hub & Residential Hybrid",
+          suitabilityScore: 95,
+          estimatedRent: "₹120 - ₹175 / sq.ft (~₹22,000/mo for 140 sq.ft counter)",
+          footfallProfile: "Startup techies, co-working space occupants, gym-goers",
+          competitionDensity: "Moderate",
+          peakHours: "9:00 AM - 11:30 AM & 5:00 PM - 9:00 PM",
+          idealFormat: "Compact front-facing takeaway counter with UPI soundbox & bar counter",
+          verdict: "High evening beverage spend with very low price sensitivity for premium chai/snacks."
+        },
+        {
+          name: "Koramangala 7th Block (Near Forum & Co-working Clusters)",
+          zoneType: "High-Street Commercial & Student Belt",
+          suitabilityScore: 91,
+          estimatedRent: "₹140 - ₹190 / sq.ft (~₹25,000/mo for 130 sq.ft)",
+          footfallProfile: "College students, working bachelors, weekend cafe crowds",
+          competitionDensity: "High (Requires signature hero item differentiator)",
+          peakHours: "1:00 PM - 3:30 PM & 6:00 PM - 10:30 PM",
+          idealFormat: "Eye-catching neon branding kiosk with fast-serving menu items",
+          verdict: "Immense daily footfall; guaranteed high volume if served under 90 seconds."
+        },
+        {
+          name: "Marathahalli - Outer Ring Road Transit Connector",
+          zoneType: "Tech Corridor & Bus Transit Spine",
+          suitabilityScore: 88,
+          estimatedRent: "₹85 - ₹125 / sq.ft (~₹18,000/mo for 150 sq.ft)",
+          footfallProfile: "Daily bus commuters, IT campus contract workers, shift staff",
+          competitionDensity: "Low to Moderate",
+          peakHours: "8:00 AM - 10:30 AM & 5:30 PM - 8:30 PM",
+          idealFormat: "Grab-and-go morning combo station (Chai + Poha/Idli box)",
+          verdict: "High margin breakfast and evening transit sales with very economical rent."
+        }
+      ]
+    });
+
+    try {
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Commercial Location Evaluator for Indian Retail. Output JSON only.", fallback);
+      const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
+      setScoutResults(parsed);
+      localStorage.setItem(`${STORAGE_PREFIX}location_scout`, JSON.stringify(parsed));
+    } catch (err) {
+      if (err.message !== "LIMIT_REACHED") console.error(err);
+    } finally {
+      setIsScoutingLocations(false);
+    }
+  };
+
+  const handleApplyLocationToEvaluator = (locName) => {
+    setTargetCity(`${locName}, ${scoutCity}`);
+    setBusinessIdea(scoutConcept);
+    setActiveTab("evaluator");
+  };
+
+  // ==========================================
+  // TAB 3: BUSINESS EVALUATOR & REPORT
+  // ==========================================
   const [businessIdea, setBusinessIdea] = useState("");
-  const [targetCity, setTargetCity] = useState("Tier 2 (e.g., Jaipur, Indore, Surat)");
+  const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
   const [initialCapital, setInitialCapital] = useState("250000");
   const [customerSegment, setCustomerSegment] = useState("B2C Young Working Professionals");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -670,14 +733,6 @@ Return ONLY valid JSON:
       const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
       setAnalysisResult(parsed);
       localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(parsed));
-
-      const generatedMilestones = parsed.actionPlan.map((item, idx) => ({
-        id: `gen_${Date.now()}_${idx}`,
-        day: item.day,
-        task: item.task,
-        completed: false
-      }));
-      setMilestones(generatedMilestones);
     } catch (err) {
       if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
@@ -685,37 +740,200 @@ Return ONLY valid JSON:
     }
   };
 
-  // --- TAB 3: EXECUTION ROADMAP ---
-  const [milestones, setMilestones] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}milestones`);
-    return cached
-      ? JSON.parse(cached)
-      : [
-          { id: "m1", day: "Day 1-2", task: "Conduct local market survey & competitor price audit", completed: true },
-          { id: "m2", day: "Day 3-5", task: "Source 3 wholesale vendors (Indiamart/Local Mandi)", completed: false },
-          { id: "m3", day: "Day 6-7", task: "Finalize custom eco-friendly packaging & sample batches", completed: false },
-          { id: "m4", day: "Day 8-9", task: "Apply for MSME Udyam Registration & GST portal check", completed: false },
-          { id: "m5", day: "Day 10+", task: "Launch WhatsApp Business Catalog and localized Instagram Ads", completed: false }
-        ];
+  // ==============================================================
+  // TAB 4: UPGRADED DAY-BY-DAY EXECUTION SPRINT & DAILY TASK SOPs
+  // ==============================================================
+  const initialDailyTasks = [
+    {
+      id: "day_1",
+      dayNumber: 1,
+      dayTitle: "Day 1: Ground Demand & Target Customer Intercept",
+      phase: "Phase 1: Demand Validation",
+      task: "Survey 25 prospective customers in your target zone to test willingness to pay.",
+      timeEst: "3.5 hrs",
+      budgetEst: "₹300 (Chai/samples)",
+      priority: "Critical",
+      completed: true,
+      notes: "Surveyed 20 techies near co-working cluster; 16 preferred sugarless cardamom blend at ₹20."
+    },
+    {
+      id: "day_2",
+      dayNumber: 2,
+      dayTitle: "Day 2: Competitor Price & Portion Audit",
+      phase: "Phase 1: Demand Validation",
+      task: "Mystery shop at 3 nearby competitors. Note their cup sizes, pricing, and peak queue bottlenecks.",
+      timeEst: "2.5 hrs",
+      budgetEst: "₹450",
+      priority: "High",
+      completed: true,
+      notes: "Competitor A charges ₹15 but wait time is 6 mins. Speed is our key advantage."
+    },
+    {
+      id: "day_3",
+      dayNumber: 3,
+      dayTitle: "Day 3: Wholesale Vendor & Mandi Price Lock-in",
+      phase: "Phase 2: Supply Chain & Sourcing",
+      task: "Visit local APMC mandi or wholesale tea/spices trader to request volume rate-cards.",
+      timeEst: "4 hrs",
+      budgetEst: "₹0",
+      priority: "Critical",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_4",
+      dayNumber: 4,
+      dayTitle: "Day 4: Packaging, Paper Cups & Consumables Order",
+      phase: "Phase 2: Supply Chain & Sourcing",
+      task: "Source 3-ply rippled heat-resistant paper cups and custom tissue packs from wholesale carton dealers.",
+      timeEst: "3 hrs",
+      budgetEst: "₹6,500",
+      priority: "High",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_5",
+      dayNumber: 5,
+      dayTitle: "Day 5: MSME Udyam Zero-Cost Registration",
+      phase: "Phase 3: Compliance & Legal",
+      task: "Register online at udyamregistration.gov.in using Aadhaar & PAN for priority SME benefits.",
+      timeEst: "1 hr",
+      budgetEst: "₹0 (Official Gov site is 100% Free)",
+      priority: "Critical",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_6",
+      dayNumber: 6,
+      dayTitle: "Day 6: Current Bank Account & GST Verification",
+      phase: "Phase 3: Compliance & Legal",
+      task: "Visit bank with Udyam Certificate, Trade License / Rent Agreement to initiate Current Account.",
+      timeEst: "3 hrs",
+      budgetEst: "₹10,000 (Initial deposit)",
+      priority: "High",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_7",
+      dayNumber: 7,
+      dayTitle: "Day 7: Basic FSSAI Food License / Municipal Trade Permit",
+      phase: "Phase 3: Compliance & Legal",
+      task: "Apply on foscos.fssai.gov.in for Food Safety Basic Registration (Form A).",
+      timeEst: "1.5 hrs",
+      budgetEst: "₹100/yr (Govt fee)",
+      priority: "Critical",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_8",
+      dayNumber: 8,
+      dayTitle: "Day 8: Merchant QR & Soundbox Installation",
+      phase: "Phase 4: Launch & Scaling",
+      task: "Set up Paytm/PhonePe/BharatPe UPI Merchant QR with Voice Soundbox to capture zero-MDR instant payments.",
+      timeEst: "1.5 hrs",
+      budgetEst: "₹125/mo rental",
+      priority: "High",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_9",
+      dayNumber: 9,
+      dayTitle: "Day 9: WhatsApp Business Catalog & QR Flyers",
+      phase: "Phase 4: Launch & Scaling",
+      task: "Upload menu with high-res photos on WhatsApp Business and print 500 neighborhood delivery flyers.",
+      timeEst: "3 hrs",
+      budgetEst: "₹1,200 (Printing)",
+      priority: "Medium",
+      completed: false,
+      notes: ""
+    },
+    {
+      id: "day_10",
+      dayNumber: 10,
+      dayTitle: "Day 10: Soft Launch (Beta Batch & Feedback Loop)",
+      phase: "Phase 4: Launch & Scaling",
+      task: "Open counters for 3 hours with a 'Buy 1 Chai Get 1 Free Samosa' promo to gather initial Google reviews.",
+      timeEst: "5 hrs",
+      budgetEst: "₹2,500 (Promo stock)",
+      priority: "Critical",
+      completed: false,
+      notes: ""
+    }
+  ];
+
+  const [dailySprintTasks, setDailySprintTasks] = useState(() => {
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}daily_sprint`);
+    return cached ? JSON.parse(cached) : initialDailyTasks;
   });
+
+  const [roadmapFilter, setRoadmapFilter] = useState("all"); // 'all', 'pending', 'completed'
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [tempNoteText, setTempNoteText] = useState("");
 
-  const handleConsultMilestoneAI = async (milestone) => {
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_PREFIX}daily_sprint`, JSON.stringify(dailySprintTasks));
+  }, [dailySprintTasks]);
+
+  const toggleDailyTask = (id) => {
+    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
+    setDailySprintTasks(updated);
+  };
+
+  const handleSaveTaskNote = (id) => {
+    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, notes: tempNoteText } : t));
+    setDailySprintTasks(updated);
+    setEditingNoteId(null);
+    setTempNoteText("");
+  };
+
+  // Generate Deep AI Daily SOP & Script
+  const handleConsultDailyTaskAI = async (taskItem) => {
     setIsLoadingTaskAdvice(true);
-    setTaskAdviceModal({ task: milestone.task, day: milestone.day, adviceText: "" });
+    setTaskAdviceModal({
+      title: taskItem.dayTitle,
+      task: taskItem.task,
+      sopText: ""
+    });
 
-    const prompt = `Indian SME task: "${milestone.task}" for "${milestone.day}".
-Give 3 practical execution tips:
-1. Exact Indian wholesale sourcing hubs or portals.
-2. Negotiation script to get credit or discounts.
-3. Common pitfall to avoid.`;
+    const prompt = `Act as an expert Indian SME Launch Specialist.
+Provide a deep, step-by-step Standard Operating Procedure (SOP) for this specific daily task:
+Task: "${taskItem.task}" (${taskItem.dayTitle})
+Estimated Time: ${taskItem.timeEst} | Budget: ${taskItem.budgetEst}
 
-    const fallback = `1. Sourcing Hubs: Contact verified suppliers on Indiamart or trade hubs (e.g. Sadar Bazar Delhi, Surat Textile Market, APMC Mandis). Always ask for GST invoice with ITC eligibility.\n2. Negotiation Script: 'Namaste Ji, we are launching commercial distribution this month with recurring weekly orders. Provide us your lowest tier price for an initial pilot sample of 50 units.'\n3. Common Pitfall: Avoid committing 100% advance payment to first-time unverified vendors. Offer 40% advance, 60% upon dispatch LR (Lorry Receipt) proof.`;
+Please provide:
+1. Exact Step-by-Step Execution Checklist for today.
+2. Realistic Negotiation Dialogue / Phone Script in Hinglish/English when dealing with Indian vendors or customers.
+3. Crucial Pitfall / 'Don't do this' warning for today.
+4. Definition of Done: Exact metric to know today's work was 100% successful.`;
+
+    const fallback = `1. STEP-BY-STEP CHECKLIST:
+- Arrive at the wholesale market/portal by 9:30 AM before peak trading rush.
+- Request rate-slabs for 50 units, 200 units, and 500 units to know their true floor margin.
+- Verify GST invoice availability to claim Input Tax Credit (ITC).
+
+2. REALISTIC NEGOTIATION SCRIPT:
+"Namaste Bhaiya, humara daily retail counter launch ho raha hai next week. Humein weekly recurring orders place karne hain. Initial test batch ke liye 50 units par kya best wholesale rate lagaoge? Agar quality jam gayi toh monthly billing aapse hi karenge."
+
+3. CRITICAL PITFALL:
+Never pay 100% upfront in cash to unverified traders without an official counter receipt or GST bill. Offer 30% advance and 70% upon delivery inspection.
+
+4. DEFINITION OF DONE:
+You have secured 2 competitive written quotes and locked in a payment credit window.`;
 
     try {
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Advisor in India.", fallback);
-      setTaskAdviceModal({ task: milestone.task, day: milestone.day, adviceText: res });
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager for Indian SMEs.", fallback);
+      setTaskAdviceModal({
+        title: taskItem.dayTitle,
+        task: taskItem.task,
+        sopText: res
+      });
     } catch (err) {
       if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
@@ -723,12 +941,16 @@ Give 3 practical execution tips:
     }
   };
 
-  const toggleMilestone = (id) => {
-    const updated = milestones.map((m) => (m.id === id ? { ...m, completed: !m.completed } : m));
-    setMilestones(updated);
-  };
+  const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
+  const sprintProgressPercent = Math.round((completedDailyCount / dailySprintTasks.length) * 100);
 
-  // --- TAB 4: CALCULATORS & LEDGER ---
+  const filteredTasks = dailySprintTasks.filter((t) => {
+    if (roadmapFilter === "pending") return !t.completed;
+    if (roadmapFilter === "completed") return t.completed;
+    return true;
+  });
+
+  // --- TAB 5: CALCULATORS & LEDGER ---
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -792,7 +1014,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     }
   };
 
-  // --- TAB 5: LIVE AI MARKET RADAR ---
+  // --- TAB 6: LIVE AI MARKET RADAR ---
   const [marketTrends, setMarketTrends] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}market_trends`);
     return cached
@@ -858,7 +1080,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
-      text: "Namaste! I am your 24/7 BizMentor AI. Ask me about polite udhaar recovery, vendor negotiations, GST compliance, or offline marketing in India!"
+      text: "Namaste! I am your 24/7 BizMentor AI. Ask me about finding local retail spots, polite udhaar recovery, supplier negotiation, or GST setup!"
     }
   ]);
   const [inputChat, setInputChat] = useState("");
@@ -898,8 +1120,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const netMarginPercent = sellingPrice > 0 ? ((netProfitUnit / Number(sellingPrice)) * 100).toFixed(1) : 0;
   const unitContribution = Number(unitRevenue) - Number(unitVariableCost);
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
-  const completedMilestones = milestones.filter((m) => m.completed).length;
-  const progressPercent = milestones.length > 0 ? Math.round((completedMilestones / milestones.length) * 100) : 0;
 
   const formatCountdown = (secs) => {
     const m = Math.floor(secs / 60);
@@ -922,12 +1142,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               BizNavigator 🇮🇳
             </h1>
             <p className="text-xs text-slate-400 font-medium">
-              Connected to MongoDB Atlas Database & Gemini AI
+              India's AI-Powered SME Operating System & Launch Suite
             </p>
           </div>
 
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
-            {/* Top Navigation Tabs */}
             <div className="grid grid-cols-4 border-b border-slate-800 pb-3 gap-1">
               <button
                 onClick={() => { setAuthMode("login"); setAuthError(""); setAuthSuccessNotice(""); }}
@@ -973,7 +1192,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </button>
             </div>
 
-            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -981,7 +1199,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* Success Notification */}
             {authSuccessNotice && (
               <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
                 <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
@@ -989,21 +1206,19 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* VIEW A: FORGOT PASSWORD RECOVERY VIA MONGODB */}
+            {/* FORGOT PASSWORD VIA OTP */}
             {authMode === "forgot" ? (
               <div className="space-y-4">
-                <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
-                      <KeyRound className="w-4 h-4 text-amber-400" />
-                      <span>MongoDB OTP Password Reset</span>
-                    </h3>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      {otpStep === 1
-                        ? "Step 1: Dispatch 6-digit verification code to email"
-                        : "Step 2: Enter code & set new password"}
-                    </p>
-                  </div>
+                <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                  <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
+                    <KeyRound className="w-4 h-4 text-amber-400" />
+                    <span>MongoDB OTP Password Reset</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {otpStep === 1
+                      ? "Step 1: Enter email to receive security code"
+                      : "Step 2: Enter code & configure new password"}
+                  </p>
                 </div>
 
                 {otpStep === 1 ? (
@@ -1028,7 +1243,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <button
                       type="submit"
                       disabled={isSendingOtp}
-                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 disabled:opacity-50"
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
                     >
                       {isSendingOtp ? (
                         <>
@@ -1097,26 +1312,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1">
-                      <button
-                        type="button"
-                        disabled={resendCooldown > 0 || isSendingOtp}
-                        onClick={handleForgotRequestOtp}
-                        className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
-                      >
-                        <RotateCcw className="w-3 h-3" />
-                        <span>{resendCooldown > 0 ? `Resend in (${resendCooldown}s)` : "Resend OTP"}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => { setOtpStep(1); setAuthError(""); }}
-                        className="text-[11px] text-slate-400 hover:text-slate-200"
-                      >
-                        Change Email
-                      </button>
-                    </div>
-
                     <button
                       type="submit"
                       className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
@@ -1127,13 +1322,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </div>
             ) : (
-              /* VIEW B: STANDARD LOGIN / SIGNUP / ADMIN FORM */
+              /* LOGIN & SIGNUP */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      Master Admin Secret Key
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">Master Admin Secret Key</label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-rose-400 absolute left-3 top-2.5" />
                       <input
@@ -1171,7 +1364,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                             <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                             <input
                               type="text"
-                              placeholder="e.g. Sharma Textiles / Cloud Kitchen"
+                              placeholder="e.g. Sharma Enterprises"
                               value={authBusinessName}
                               onChange={(e) => setAuthBusinessName(e.target.value)}
                               className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
@@ -1182,9 +1375,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     )}
 
                     <div>
-                      <label className="block text-slate-300 font-semibold mb-1">
-                        Email Address
-                      </label>
+                      <label className="block text-slate-300 font-semibold mb-1">Email Address</label>
                       <div className="relative">
                         <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
                         <input
@@ -1204,13 +1395,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         {authMode === "login" && (
                           <button
                             type="button"
-                            onClick={() => {
-                              setAuthMode("forgot");
-                              setOtpStep(1);
-                              setAuthError("");
-                              setAuthSuccessNotice("");
-                            }}
-                            className="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline transition"
+                            onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
+                            className="text-[11px] font-bold text-amber-400 hover:underline"
                           >
                             Forgot Password?
                           </button>
@@ -1236,8 +1422,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   disabled={isAuthLoading}
                   className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 ${
                     authMode === "admin"
-                      ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 shadow-rose-500/20"
-                      : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20"
+                      ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950"
+                      : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950"
                   }`}
                 >
                   {isAuthLoading ? (
@@ -1263,12 +1449,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <span className="text-[11px] text-slate-400">Locked out of your account? </span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setAuthMode("forgot");
-                    setOtpStep(1);
-                    setAuthError("");
-                    setAuthSuccessNotice("");
-                  }}
+                  onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
                   className="text-[11px] text-amber-400 font-bold hover:underline"
                 >
                   Reset Password with Email OTP 🔑
@@ -1312,11 +1493,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </div>
 
                 <button
-                  onClick={() => {
-                    fetchDbData();
-                    setShowAdminConsoleModal(true);
-                  }}
-                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 transition transform hover:scale-105"
+                  onClick={() => { fetchDbData(); setShowAdminConsoleModal(true); }}
+                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md transition transform hover:scale-105"
                 >
                   <Settings className="w-3.5 h-3.5" />
                   <span>Administrative Works ⚙️</span>
@@ -1367,8 +1545,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto text-sm border-t border-slate-800/80 pt-1">
           {[
             { id: "idea-finder", label: "AI Idea Matcher", icon: Lightbulb },
+            { id: "location-scout", label: "Location Scout 📍", icon: MapPin, highlight: true },
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
-            { id: "roadmap", label: `Execution Roadmap`, icon: CheckCircle2 },
+            { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
             { id: "market", label: "Live AI Market Radar", icon: FileText }
           ].map((tab) => {
@@ -1386,41 +1565,34 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
+                {tab.highlight && (
+                  <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1.5 py-0.2 rounded border border-amber-500/40">
+                    NEW
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </header>
 
-      {/* Pending Verification Notice Banner */}
-      {userPendingTxn && !isUserPro && (
-        <div className="bg-amber-950/40 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-300 flex items-center justify-between">
-          <div className="max-w-7xl mx-auto w-full flex items-center justify-between">
-            <span className="flex items-center space-x-2">
-              <Clock className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span>
-                Payment Verification Pending: Payment ID <strong>{userPendingTxn.paymentId}</strong> is saved in MongoDB awaiting Administrator confirmation. Pro features will unlock upon approval.
-              </span>
-            </span>
-          </div>
-        </div>
-      )}
-
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB 1: AI IDEA MATCHER */}
+        {/* ============================================================== */}
+        {/* TAB 1: AI IDEA MATCHER                                         */}
+        {/* ============================================================== */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
               <span className="text-amber-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
                 <Sparkles className="w-4 h-4" />
-                <span>AI Profile Evaluation</span>
+                <span>Personalized Opportunity Engine</span>
               </span>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Discover Profitable Indian Businesses Fitted to Your Constraints
+                Find High-Margin Indian SME Ideas for Your Budget & Skills
               </h1>
               <p className="text-sm text-slate-300 mt-1 max-w-3xl">
-                Every calculation and suggestion is analyzed against Indian market demand, regional consumer buying habits, and capital feasibility via Google Gemini AI.
+                Evaluated against Indian Tier-1/2/3 local buying habits, wholesale supply chains, and realistic capital payback.
               </p>
             </div>
 
@@ -1444,21 +1616,19 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Location / Tier</label>
-                    <select
+                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Region</label>
+                    <input
+                      type="text"
+                      required
                       value={finderLocation}
                       onChange={(e) => setFinderLocation(e.target.value)}
+                      placeholder="e.g. Pune, Jaipur, Indore, Ahmedabad"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
-                    >
-                      <option>Metro Tier-1 (Mumbai, Bengaluru, Delhi NCR, Hyderabad)</option>
-                      <option>Tier-2 City (e.g., Jaipur, Indore, Surat, Coimbatore)</option>
-                      <option>Tier-3 Small Town / District HQ</option>
-                      <option>Rural / Agricultural Mandi Belt</option>
-                    </select>
+                    />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Your Skills & Experience</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Your Skills & Strengths</label>
                     <textarea
                       rows={2}
                       required
@@ -1492,7 +1662,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     ) : (
                       <>
                         <Lightbulb className="w-4 h-4" />
-                        <span>Run AI Business Evaluation</span>
+                        <span>Generate Curated Business Ideas</span>
                       </>
                     )}
                   </button>
@@ -1516,12 +1686,23 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         <strong className="text-amber-400">AI Evaluation: </strong>
                         {idea.whyFit}
                       </div>
-                      <div className="flex justify-end pt-2">
+
+                      <div className="flex flex-wrap gap-2 pt-2 justify-end">
+                        <button
+                          onClick={() => {
+                            setScoutConcept(idea.title);
+                            setActiveTab("location-scout");
+                          }}
+                          className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 font-bold px-3 py-2 rounded-xl text-xs flex items-center space-x-1"
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Find Best Locations in City</span>
+                        </button>
                         <button
                           onClick={() => handleSelectIdeaForRoadmap(idea)}
                           className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition"
                         >
-                          <span>Send to Business Evaluator & Roadmap</span>
+                          <span>Build Feasibility & Roadmap</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -1539,7 +1720,187 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 2: BUSINESS EVALUATOR */}
+        {/* ============================================================== */}
+        {/* TAB 2: AI MICRO-LOCATION SCOUT (NEW FEATURE)                   */}
+        {/* ============================================================== */}
+        {activeTab === "location-scout" && (
+          <div className="space-y-8">
+            <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
+              <span className="text-amber-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
+                <MapPin className="w-4 h-4" />
+                <span>AI Commercial Micro-Market Scout</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
+                Discover the Most Profitable Neighborhoods & Streets in Your City
+              </h1>
+              <p className="text-sm text-slate-300 mt-1 max-w-3xl">
+                Evaluates rental rates per sq.ft., footfall profiles (IT techies vs. student clusters vs. families), and competition density for your exact concept.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Column: Form */}
+              <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
+                  <Compass className="w-5 h-5 text-amber-400" />
+                  <span>City & Footfall Parameters</span>
+                </h2>
+
+                <form onSubmit={handleEvaluateLocations} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Bengaluru, Pune, Jaipur, Ahmedabad, Lucknow, Delhi"
+                      value={scoutCity}
+                      onChange={(e) => setScoutCity(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Specialty Chai Kiosk, Cloud Kitchen, Gym & Fitness Studio"
+                      value={scoutConcept}
+                      onChange={(e) => setScoutConcept(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Monthly Rent Budget (₹ INR)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-2.5 text-slate-500 text-sm">₹</span>
+                      <input
+                        type="number"
+                        required
+                        value={scoutBudgetRent}
+                        onChange={(e) => setScoutBudgetRent(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Customer Footfall Type</label>
+                    <select
+                      value={scoutTrafficType}
+                      onChange={(e) => setScoutTrafficType(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                    >
+                      <option>Corporate Tech Park / Startup Office Crowd</option>
+                      <option>High-Street Retail & Weekend Dining Walkers</option>
+                      <option>College / University Hostel & Student Belt</option>
+                      <option>High-Density Gated Societies & Family Residential</option>
+                      <option>Metro Station / Bus Stand Transit Hub</option>
+                      <option>Industrial Cluster & Wholesale Mandi Traders</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isScoutingLocations}
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
+                  >
+                    {isScoutingLocations ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Scanning Commercial Micro-Markets...</span>
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="w-4 h-4" />
+                        <span>Scout Best Micro-Locations</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Right Column: AI Location Recommendations */}
+              <div className="lg:col-span-7 space-y-4">
+                {scoutResults ? (
+                  <div className="space-y-4">
+                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed">
+                      <strong className="text-amber-400 block font-bold mb-1">City Commercial Verdict:</strong>
+                      {scoutResults.cityOverview}
+                    </div>
+
+                    <div className="space-y-4">
+                      {scoutResults.locations?.map((loc, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-900 border border-slate-800 hover:border-slate-700 p-5 rounded-3xl shadow-xl space-y-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                            <div>
+                              <h3 className="font-extrabold text-slate-100 text-base flex items-center space-x-2">
+                                <MapPin className="w-4 h-4 text-amber-400" />
+                                <span>{loc.name}</span>
+                              </h3>
+                              <span className="text-[10px] text-slate-400">{loc.zoneType}</span>
+                            </div>
+                            <span className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-bold text-xs px-2.5 py-1 rounded-full">
+                              {loc.suitabilityScore}% Location Match
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                              <span className="text-[10px] text-slate-500 block">Est. Market Rent</span>
+                              <span className="font-bold text-amber-300 block truncate">{loc.estimatedRent}</span>
+                            </div>
+
+                            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                              <span className="text-[10px] text-slate-500 block">Competition</span>
+                              <span className="font-bold text-slate-200 block truncate">{loc.competitionDensity}</span>
+                            </div>
+
+                            <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                              <span className="text-[10px] text-slate-500 block">Peak Hours</span>
+                              <span className="font-bold text-emerald-400 block truncate">{loc.peakHours}</span>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 text-xs text-slate-300 space-y-1">
+                            <div><strong className="text-slate-200">Recommended Format: </strong>{loc.idealFormat}</div>
+                            <div><strong className="text-amber-400">Why it works: </strong>{loc.verdict}</div>
+                          </div>
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              onClick={() => handleApplyLocationToEvaluator(loc.name)}
+                              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 transition"
+                            >
+                              <span>Apply this Location to Feasibility Plan</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-80 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                    <Compass className="w-12 h-12 text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">Location Scout Awaiting City Input</p>
+                    <p className="text-xs max-w-sm mt-1">
+                      Enter your desired city and rent budget on the left to evaluate high-converting streets and tech corridors.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================================== */}
+        {/* TAB 3: BUSINESS EVALUATOR                                      */}
+        {/* ============================================================== */}
         {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -1561,7 +1922,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Tier</label>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Micro-Market</label>
                     <input
                       type="text"
                       value={targetCity}
@@ -1644,7 +2005,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         onClick={() => setActiveTab("roadmap")}
                         className="bg-amber-500 hover:bg-amber-400 text-slate-950 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1.5"
                       >
-                        <span>View Interactive Roadmap</span>
+                        <span>Start Day-by-Day Launch Sprint</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>
@@ -1660,82 +2021,193 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 3: EXECUTION ROADMAP */}
+        {/* ============================================================== */}
+        {/* TAB 4: UPGRADED DAY-BY-DAY EXECUTION SPRINT & DAILY TASK SOPs  */}
+        {/* ============================================================== */}
         {activeTab === "roadmap" && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+          <div className="max-w-5xl mx-auto space-y-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-slate-800 gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-slate-100 flex items-center space-x-2">
-                    <CheckCircle2 className="w-6 h-6 text-amber-400" />
-                    <span>Launch Roadmap with AI Task Doctor</span>
+                    <Calendar className="w-6 h-6 text-amber-400" />
+                    <span>Daily Task Execution Guide (10-Day Sprint)</span>
                   </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Execute one tangible milestone per day with time allocations, budget estimates, and automated AI SOPs.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-4 bg-slate-950 px-4 py-2.5 rounded-2xl border border-slate-800">
+                  <div className="text-right">
+                    <div className="flex items-center space-x-1.5 justify-end">
+                      <Flame className="w-4 h-4 text-orange-400 animate-pulse" />
+                      <span className="text-lg font-black text-amber-400">{sprintProgressPercent}% Ready</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 block">{completedDailyCount} of {dailySprintTasks.length} Days Finished</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-8 space-y-3">
-                {milestones.map((m) => (
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-950 h-3 rounded-full overflow-hidden border border-slate-800">
+                <div
+                  className="bg-gradient-to-r from-amber-500 via-orange-500 to-emerald-500 h-full transition-all duration-500 rounded-full"
+                  style={{ width: `${sprintProgressPercent}%` }}
+                />
+              </div>
+
+              {/* Filter Tabs */}
+              <div className="flex items-center space-x-2 text-xs border-b border-slate-800 pb-3">
+                <Filter className="w-3.5 h-3.5 text-slate-500" />
+                <button
+                  onClick={() => setRoadmapFilter("all")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition ${
+                    roadmapFilter === "all" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  All Days ({dailySprintTasks.length})
+                </button>
+                <button
+                  onClick={() => setRoadmapFilter("pending")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition ${
+                    roadmapFilter === "pending" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Pending ({dailySprintTasks.length - completedDailyCount})
+                </button>
+                <button
+                  onClick={() => setRoadmapFilter("completed")}
+                  className={`px-3 py-1 rounded-lg font-semibold transition ${
+                    roadmapFilter === "completed" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+                  }`}
+                >
+                  Completed ({completedDailyCount})
+                </button>
+              </div>
+
+              {/* Daily Task Action Cards */}
+              <div className="space-y-4">
+                {filteredTasks.map((t) => (
                   <div
-                    key={m.id}
-                    className={`flex items-center justify-between p-4 rounded-2xl border transition ${
-                      m.completed
-                        ? "bg-emerald-950/20 border-emerald-500/30 text-slate-400"
+                    key={t.id}
+                    className={`p-5 rounded-2xl border transition space-y-3 ${
+                      t.completed
+                        ? "bg-slate-950/40 border-emerald-500/30 text-slate-400"
                         : "bg-slate-950 border-slate-800 text-slate-200"
                     }`}
                   >
-                    <div
-                      onClick={() => toggleMilestone(m.id)}
-                      className="flex items-center space-x-3 cursor-pointer flex-1"
-                    >
-                      {m.completed ? (
-                        <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                      ) : (
-                        <Circle className="w-5 h-5 text-slate-600 flex-shrink-0" />
-                      )}
-                      <div>
-                        <span className="text-xs font-bold text-amber-400 mr-2">{m.day}:</span>
-                        <span className={`text-sm ${m.completed ? "line-through text-slate-500" : ""}`}>{m.task}</span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-start space-x-3 flex-1">
+                        <button onClick={() => toggleDailyTask(t.id)} className="mt-0.5 focus:outline-none">
+                          {t.completed ? (
+                            <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                          ) : (
+                            <Circle className="w-5 h-5 text-slate-600 flex-shrink-0 hover:text-amber-400" />
+                          )}
+                        </button>
+
+                        <div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="font-extrabold text-sm text-slate-100">{t.dayTitle}</span>
+                            <span className="text-[10px] bg-slate-800 text-amber-400 px-2 py-0.5 rounded border border-slate-700">
+                              {t.phase}
+                            </span>
+                            <span className={`text-[9px] px-2 py-0.2 rounded font-bold uppercase ${
+                              t.priority === "Critical" ? "bg-rose-950 text-rose-300" : "bg-sky-950 text-sky-300"
+                            }`}>
+                              {t.priority}
+                            </span>
+                          </div>
+
+                          <p className={`text-xs mt-1 leading-relaxed ${t.completed ? "line-through text-slate-500" : "text-slate-300"}`}>
+                            {t.task}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Daily Metrics & AI SOP Button */}
+                      <div className="flex items-center space-x-2 self-end sm:self-auto">
+                        <div className="text-right text-[10px] text-slate-400 bg-slate-900 px-2.5 py-1 rounded-xl border border-slate-800 hidden md:block">
+                          <div>Time: <strong className="text-slate-200">{t.timeEst}</strong></div>
+                          <div>Budget: <strong className="text-amber-400">{t.budgetEst}</strong></div>
+                        </div>
+
+                        <button
+                          onClick={() => handleConsultDailyTaskAI(t)}
+                          className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1"
+                        >
+                          <Bot className="w-3.5 h-3.5" />
+                          <span>AI Daily SOP</span>
+                        </button>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleConsultMilestoneAI(m)}
-                      className="ml-3 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1 flex-shrink-0"
-                    >
-                      <Bot className="w-3.5 h-3.5" />
-                      <span>AI Unblock</span>
-                    </button>
+                    {/* Interactive Notes per Task */}
+                    <div className="border-t border-slate-800/80 pt-2 text-xs flex items-center justify-between">
+                      {editingNoteId === t.id ? (
+                        <div className="flex items-center space-x-2 w-full">
+                          <input
+                            type="text"
+                            value={tempNoteText}
+                            onChange={(e) => setTempNoteText(e.target.value)}
+                            placeholder="Add phone numbers, mandi quotes, or application IDs..."
+                            className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-100"
+                          />
+                          <button
+                            onClick={() => handleSaveTaskNote(t.id)}
+                            className="bg-emerald-500 text-slate-950 px-2.5 py-1 rounded-lg font-bold text-[11px]"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between w-full text-[11px]">
+                          <span className="text-slate-400 italic truncate max-w-md">
+                            {t.notes ? `📝 Note: "${t.notes}"` : "No notes yet for this task."}
+                          </span>
+                          <button
+                            onClick={() => { setEditingNoteId(t.id); setTempNoteText(t.notes || ""); }}
+                            className="text-amber-400 hover:underline flex items-center space-x-1 ml-2 flex-shrink-0"
+                          >
+                            <FileEdit className="w-3 h-3" />
+                            <span>{t.notes ? "Edit" : "Add Note"}</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
+            {/* Modal: AI Task SOP Consultation */}
             {taskAdviceModal && (
-              <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-4 relative shadow-2xl">
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-xl w-full space-y-4 relative shadow-2xl max-h-[85vh] flex flex-col">
                   <button
                     onClick={() => setTaskAdviceModal(null)}
                     className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1"
                   >
                     <X className="w-5 h-5" />
                   </button>
-                  <div className="flex items-center space-x-2">
+
+                  <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
                     <Bot className="w-5 h-5 text-amber-400" />
-                    <h3 className="font-bold text-slate-100 text-base">AI Task Doctor Consultation</h3>
-                  </div>
-                  <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs">
-                    <span className="text-amber-400 font-bold">{taskAdviceModal.day}: </span>
-                    <span className="text-slate-200">{taskAdviceModal.task}</span>
+                    <div>
+                      <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
+                      <p className="text-[10px] text-slate-400">{taskAdviceModal.task}</p>
+                    </div>
                   </div>
 
-                  <div className="text-xs text-slate-300 space-y-2 whitespace-pre-line leading-relaxed min-h-[120px]">
+                  <div className="flex-1 overflow-y-auto text-xs text-slate-300 space-y-2 whitespace-pre-line leading-relaxed pr-1">
                     {isLoadingTaskAdvice ? (
-                      <div className="flex items-center justify-center h-28 space-x-2 text-slate-400">
+                      <div className="flex items-center justify-center h-36 space-x-2 text-slate-400">
                         <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
-                        <span>Formulating Indian wholesale & compliance advice...</span>
+                        <span>Formulating Standard Operating Procedure & Scripts...</span>
                       </div>
                     ) : (
-                      taskAdviceModal.adviceText
+                      taskAdviceModal.sopText
                     )}
                   </div>
                 </div>
@@ -1744,7 +2216,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 4: CALCULATORS & LEDGER */}
+        {/* TAB 5: CALCULATORS & LEDGER */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -1975,7 +2447,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 5: LIVE AI MARKET RADAR */}
+        {/* TAB 6: LIVE AI MARKET RADAR */}
         {activeTab === "market" && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
@@ -2064,7 +2536,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             <div className="p-2 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-1.5">
               <input
                 type="text"
-                placeholder="Ask about GST, credit, wholesale..."
+                placeholder="Ask about location, GST, credit..."
                 value={inputChat}
                 onChange={(e) => setInputChat(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
