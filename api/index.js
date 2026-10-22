@@ -55,6 +55,21 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// Temporary OTP Store for Registration Verification
+const PendingRegistrationSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    emailOrPhone: { type: String, required: true, lowercase: true, trim: true },
+    businessName: { type: String, default: "My Indian Enterprise" },
+    password: { type: String, required: true },
+    otp: { type: String, required: true },
+    otpExpires: { type: Date, required: true }
+  },
+  { timestamps: true }
+);
+// Auto-delete pending docs after 10 minutes
+PendingRegistrationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 600 });
+
 const TransactionSchema = new mongoose.Schema(
   {
     paymentId: { type: String, required: true, unique: true, trim: true },
@@ -67,48 +82,115 @@ const TransactionSchema = new mongoose.Schema(
 );
 
 const User = mongoose.models.User || mongoose.model("User", UserSchema);
+const PendingRegistration = mongoose.models.PendingRegistration || mongoose.model("PendingRegistration", PendingRegistrationSchema);
 const Transaction = mongoose.models.Transaction || mongoose.model("Transaction", TransactionSchema);
 
 // 4. AUTHENTICATION ROUTES
 
-// Register User
-app.post("/api/auth/register", async (req, res) => {
+// Step 1: Send Registration OTP to Email
+app.post("/api/auth/register-otp", async (req, res) => {
   try {
     const { name, emailOrPhone, businessName, password } = req.body;
     if (!name || !emailOrPhone || !password) {
-      return res.status(400).json({ error: "All fields are required." });
+      return res.status(400).json({ error: "Name, email and password are required." });
     }
 
     const cleanAccount = emailOrPhone.trim().toLowerCase();
     const existing = await User.findOne({ emailOrPhone: cleanAccount });
     if (existing) {
-      return res.status(400).json({ error: "An account with this email/phone already exists." });
+      return res.status(400).json({ error: "An account with this email already exists. Please login." });
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const user = new User({
+    const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 min
+
+    // Save or update pending record
+    await PendingRegistration.deleteMany({ emailOrPhone: cleanAccount });
+    await PendingRegistration.create({
       name,
       emailOrPhone: cleanAccount,
       businessName: businessName || "My Indian Enterprise",
       password: hashedPassword,
+      otp: generatedOtp,
+      otpExpires
+    });
+
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      await transporter.sendMail({
+        from: `"BizNavigator Team" <${process.env.EMAIL_USER}>`,
+        to: cleanAccount,
+        subject: "Verify Your BizNavigator Registration OTP",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+            <h2 style="color: #f59e0b; text-align: center; margin-bottom: 5px;">BizNavigator 🇮🇳</h2>
+            <p style="text-align: center; color: #64748b; font-size: 13px; margin-top: 0;">Empowering Indian SMEs</p>
+            <p>Namaste <strong>${name}</strong>,</p>
+            <p>BizNavigator par apna account create karne ke liye niche diya gaya 6-digit OTP enter karein:</p>
+            <div style="text-align: center; margin: 25px 0;">
+              <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 12px 28px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
+            </div>
+            <p style="color: #64748b; font-size: 13px;">Ye OTP agle <strong>5 minutes</strong> ke liye valid hai.</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 20px;" />
+            <p style="color: #94a3b8; font-size: 11px; text-align: center;">BizNavigator • Smart Business Strategy for India</p>
+          </div>
+        `
+      });
+    }
+
+    return res.json({
+      message: "Verification OTP sent to your email!",
+      expiresInSeconds: 300
+    });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to dispatch registration OTP: " + err.message });
+  }
+});
+
+// Step 2: Verify Registration OTP & Save to MongoDB User Collection
+app.post("/api/auth/register-verify", async (req, res) => {
+  try {
+    const { emailOrPhone, otp } = req.body;
+    const cleanAccount = emailOrPhone?.trim().toLowerCase();
+
+    const pending = await PendingRegistration.findOne({ emailOrPhone: cleanAccount });
+    if (!pending) {
+      return res.status(400).json({ error: "No pending registration found or session expired. Please start over." });
+    }
+
+    if (pending.otp !== otp?.trim()) {
+      return res.status(400).json({ error: "Invalid 6-digit verification OTP." });
+    }
+
+    if (new Date() > pending.otpExpires) {
+      return res.status(400).json({ error: "OTP has expired. Please request a new one." });
+    }
+
+    const newUser = new User({
+      name: pending.name,
+      emailOrPhone: pending.emailOrPhone,
+      businessName: pending.businessName,
+      password: pending.password,
       role: "user",
       isProUser: false,
       evaluationsCount: 0
     });
 
-    await user.save();
+    await newUser.save();
+    await PendingRegistration.deleteMany({ emailOrPhone: cleanAccount });
+
     return res.status(201).json({
-      message: "Account registered successfully!",
+      message: "Account verified and registered successfully!",
       user: {
-        id: user._id,
-        name: user.name,
-        emailOrPhone: user.emailOrPhone,
-        businessName: user.businessName,
-        role: user.role,
-        isProUser: user.isProUser,
-        evaluationsCount: user.evaluationsCount
+        id: newUser._id,
+        name: newUser.name,
+        emailOrPhone: newUser.emailOrPhone,
+        businessName: newUser.businessName,
+        role: newUser.role,
+        isProUser: newUser.isProUser,
+        evaluationsCount: newUser.evaluationsCount
       }
     });
   } catch (err) {
@@ -146,12 +228,12 @@ app.post("/api/auth/login", async (req, res) => {
 
     const user = await User.findOne({ emailOrPhone: cleanAccount });
     if (!user) {
-      return res.status(401).json({ error: "Invalid email/mobile or password." });
+      return res.status(401).json({ error: "Invalid email or password." });
     }
 
     const isMatch = await bcrypt.compare(cleanPassword, user.password);
     if (!isMatch) {
-      return res.status(401).json({ error: "Invalid email/mobile or password." });
+      return res.status(401).json({ error: "Invalid email or password." });
     }
 
     return res.json({
@@ -187,24 +269,23 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
 
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetOtp = generatedOtp;
-    user.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 min
+    user.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000);
     await user.save();
 
-    // Send Real Email via Nodemailer
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
       await transporter.sendMail({
         from: `"BizNavigator Support" <${process.env.EMAIL_USER}>`,
         to: cleanEmail,
         subject: "Your BizNavigator Password Reset OTP",
         html: `
-          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 10px;">
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
             <h2 style="color: #f59e0b; text-align: center;">BizNavigator 🇮🇳</h2>
             <p>Namaste <strong>${user.name}</strong>,</p>
-            <p>Aapke BizNavigator account ka password reset request receive hua hai. Aapka 6-digit OTP niche diya gaya hai:</p>
+            <p>Aapke BizNavigator account ka password reset request receive hua hai. Aapka 6-digit OTP:</p>
             <div style="text-align: center; margin: 25px 0;">
-              <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 10px 24px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
+              <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 12px 28px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
             </div>
-            <p style="color: #64748b; font-size: 13px;">Ye OTP agle <strong>5 minutes</strong> ke liye valid hai. Agar ye request aapne nahi ki thi, toh is email ko ignore karein.</p>
+            <p style="color: #64748b; font-size: 13px;">Ye OTP agle <strong>5 minutes</strong> ke liye valid hai.</p>
             <hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 20px;" />
             <p style="color: #94a3b8; font-size: 11px; text-align: center;">BizNavigator • Smart Business Strategy for India</p>
           </div>
@@ -214,7 +295,6 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
 
     return res.json({
       message: "OTP sent to your registered email address!",
-      otp: process.env.NODE_ENV === "production" ? undefined : generatedOtp,
       expiresInSeconds: 300
     });
   } catch (err) {
@@ -222,7 +302,7 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
   }
 });
 
-// Forgot Password - Verify OTP & Update Password
+// Forgot Password - Reset
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
@@ -253,7 +333,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
   }
 });
 
-// Increment User Evaluation Usage
+// Increment User Usage
 app.post("/api/users/usage", async (req, res) => {
   try {
     const { emailOrPhone } = req.body;
@@ -269,7 +349,7 @@ app.post("/api/users/usage", async (req, res) => {
   }
 });
 
-// 5. SUBSCRIPTION & PAYMENT ROUTES
+// 5. SUBSCRIPTIONS
 app.post("/api/subscriptions/submit", async (req, res) => {
   try {
     const { paymentId, userEmail, userName, plan } = req.body;
