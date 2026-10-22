@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -46,7 +45,9 @@ import {
   Flame,
   FileEdit,
   CheckCircle,
-  Gauge
+  Gauge,
+  Eye,
+  EyeOff
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
@@ -72,7 +73,7 @@ const PAYMENT_LINKS = {
   quarterlyPro: "https://rzp.io/rzp/wkdIZLD"   // ₹599
 };
 
-// --- TOP-LEVEL HELPER FUNCTIONS (DECLARED ONCE) ---
+// --- TOP-LEVEL HELPER FUNCTIONS ---
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
   try {
@@ -131,6 +132,7 @@ export default function BizNavigatorApp() {
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+  const [showPasswordToggle, setShowPasswordToggle] = useState(false);
 
   // Real Email OTP States for Signup
   const [signupStep, setSignupStep] = useState(1);
@@ -167,7 +169,7 @@ export default function BizNavigatorApp() {
   // Admin Check
   const isAdminUser = Boolean(currentUser?.role?.toLowerCase() === "admin");
 
-  // Strict Pro Check: Only active if Admin, granted in DB, or verified transaction in DB
+  // Strict Pro Check
   const isUserPro = Boolean(
     currentUser && (
       isAdminUser ||
@@ -321,7 +323,7 @@ export default function BizNavigatorApp() {
       return;
     }
 
-    if (authPassword.length < 4) {
+    if (authPassword.trim().length < 4) {
       setAuthError("Password must be at least 4 characters long.");
       return;
     }
@@ -331,14 +333,14 @@ export default function BizNavigatorApp() {
       let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone, name: authFullName })
+        body: JSON.stringify({ email: authEmailOrPhone.trim(), name: authFullName.trim() })
       });
 
       if (!res.ok) {
         res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: authEmailOrPhone })
+          body: JSON.stringify({ email: authEmailOrPhone.trim() })
         });
       }
 
@@ -377,10 +379,10 @@ export default function BizNavigatorApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: authFullName,
-          emailOrPhone: authEmailOrPhone,
-          businessName: authBusinessName,
-          password: authPassword,
+          name: authFullName.trim(),
+          emailOrPhone: authEmailOrPhone.trim(),
+          businessName: authBusinessName.trim(),
+          password: authPassword.trim(),
           otp: signupEnteredOtp.trim()
         })
       });
@@ -405,13 +407,18 @@ export default function BizNavigatorApp() {
     e.preventDefault();
     setAuthError("");
     setAuthSuccessNotice("");
-    setIsSendingOtp(true);
 
+    // Fresh reset of password fields to eliminate any residual strings
+    setResetNewPassword("");
+    setResetConfirmPassword("");
+    setEnteredOtp("");
+
+    setIsSendingOtp(true);
     try {
       const res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone })
+        body: JSON.stringify({ email: authEmailOrPhone.trim() })
       });
 
       const data = await res.json();
@@ -428,38 +435,66 @@ export default function BizNavigatorApp() {
     }
   };
 
+  // --- FIXED FORGOT PASSWORD VALIDATION: ELIMINATES FALSE MISMATCHES ---
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
+    setAuthSuccessNotice("");
 
-    if (resetNewPassword !== resetConfirmPassword) {
-      setAuthError("Passwords do not match.");
+    const cleanEmail = authEmailOrPhone.trim().toLowerCase();
+    const cleanOtp = enteredOtp.trim();
+    const cleanNew = resetNewPassword.trim();
+    const cleanConfirm = resetConfirmPassword.trim();
+
+    if (!cleanOtp || cleanOtp.length !== 6) {
+      setAuthError("Please enter the complete 6-digit OTP code received in your email.");
       return;
     }
+
+    if (!cleanNew) {
+      setAuthError("Please enter your new password.");
+      return;
+    }
+
+    if (cleanNew.length < 4) {
+      setAuthError("Password must be at least 4 characters long.");
+      return;
+    }
+
+    // Exact sanitized comparison
+    if (cleanNew !== cleanConfirm) {
+      setAuthError("New Password and Confirm Password do not match. Please verify both fields.");
+      return;
+    }
+
+    setIsAuthLoading(true);
 
     try {
       const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: authEmailOrPhone,
-          otp: enteredOtp,
-          newPassword: resetNewPassword
+          email: cleanEmail,
+          otp: cleanOtp,
+          newPassword: cleanNew
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Password reset failed.");
+      if (!res.ok) throw new Error(data.error || "Password reset failed. Invalid or expired OTP.");
 
+      // Reset state and return to login
       setOtpStep(1);
       setEnteredOtp("");
       setResetNewPassword("");
       setResetConfirmPassword("");
-      setAuthMode("login");
       setAuthPassword("");
+      setAuthMode("login");
       setAuthSuccessNotice("Password verified and updated in MongoDB! Please log in with your new password.");
     } catch (err) {
-      setAuthError(err.message);
+      setAuthError(err.message || "Failed to reset password.");
+    } finally {
+      setIsAuthLoading(false);
     }
   };
 
@@ -473,7 +508,7 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // GEMINI AI CALLER (USES VERCEL GEMINI_API_KEY)
+  // GEMINI AI CALLER
   // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
@@ -606,7 +641,6 @@ Return ONLY valid JSON matching this schema:
       setMatchedIdeas(parsedData.ideas);
       localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsedData.ideas));
     } else {
-      // Dynamic synthesis based on their exact 6 inputs
       const numBudget = parseInt(finderBudget) || 150000;
       const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
       const cleanSkill = finderSkills.split(",")[0].trim() || "Operations";
@@ -792,7 +826,7 @@ Return ONLY valid JSON:
       setAnalysisResult({
         viabilityScore: 8.4,
         competitionScore: 6.8,
-        summary: `High domestic demand in ${targetCity}. Given your capital of ₹${numCap.toLocaleString("en-IN")}, focus on lean direct distribution.`,
+        summary: `High domestic demand in ${targetCity}. Focus on lean direct distribution.`,
         estimatedMarginPercent: "32% - 44%",
         breakEvenMonths: "5 to 6 Months",
         capex: [
@@ -1121,7 +1155,15 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 Register
               </button>
               <button
-                onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
+                onClick={() => {
+                  setAuthMode("forgot");
+                  setOtpStep(1);
+                  setAuthError("");
+                  setAuthSuccessNotice("");
+                  setEnteredOtp("");
+                  setResetNewPassword("");
+                  setResetConfirmPassword("");
+                }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
                   authMode === "forgot" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"
                 }`}
@@ -1257,6 +1299,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   </button>
                 </form>
               ) : (
+                /* STEP 2: VERIFY OTP & RESET PASSWORD WITH MATCH FEEDBACK & EYE TOGGLE */
                 <form onSubmit={handleForgotVerifyAndReset} className="space-y-3.5 text-xs">
                   <div>
                     <label className="block text-slate-300 font-semibold mb-1">6-Digit OTP from Email</label>
@@ -1270,22 +1313,70 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono tracking-widest text-center"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">New Password</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-slate-300 font-semibold">New Password</label>
+                      <button
+                        type="button"
+                        onClick={() => setShowPasswordToggle(!showPasswordToggle)}
+                        className="text-[10px] text-slate-400 hover:text-slate-200 flex items-center space-x-1"
+                      >
+                        {showPasswordToggle ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                        <span>{showPasswordToggle ? "Hide" : "Show"}</span>
+                      </button>
+                    </div>
                     <input
-                      type="password"
+                      type={showPasswordToggle ? "text" : "password"}
                       required
+                      autoComplete="new-password"
                       placeholder="At least 4 characters"
                       value={resetNewPassword}
                       onChange={(e) => setResetNewPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
                     />
                   </div>
+
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Confirm New Password</label>
+                    <input
+                      type={showPasswordToggle ? "text" : "password"}
+                      required
+                      autoComplete="new-password"
+                      placeholder="Re-enter new password"
+                      value={resetConfirmPassword}
+                      onChange={(e) => setResetConfirmPassword(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+
+                    {/* REAL-TIME MATCH INDICATOR */}
+                    {resetConfirmPassword && (
+                      <div className={`text-[10px] mt-1 font-semibold flex items-center space-x-1 ${
+                        resetNewPassword.trim() === resetConfirmPassword.trim()
+                          ? "text-emerald-400"
+                          : "text-rose-400"
+                      }`}>
+                        {resetNewPassword.trim() === resetConfirmPassword.trim() ? (
+                          <>
+                            <Check className="w-3 h-3" />
+                            <span>Passwords match</span>
+                          </>
+                        ) : (
+                          <>
+                            <X className="w-3 h-3" />
+                            <span>Passwords do not match</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <button
                     type="submit"
-                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs"
+                    disabled={isAuthLoading}
+                    className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs mt-2"
                   >
-                    Reset Password
+                    {isAuthLoading ? "Updating in MongoDB..." : "Reset Password"}
                   </button>
                 </form>
               )
@@ -1322,7 +1413,15 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         <label className="text-slate-300 font-semibold">Password</label>
                         <button
                           type="button"
-                          onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
+                          onClick={() => {
+                            setAuthMode("forgot");
+                            setOtpStep(1);
+                            setAuthError("");
+                            setAuthSuccessNotice("");
+                            setEnteredOtp("");
+                            setResetNewPassword("");
+                            setResetConfirmPassword("");
+                          }}
                           className="text-[11px] font-bold text-amber-400 hover:underline"
                         >
                           Forgot Password?
@@ -1359,7 +1458,15 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <span className="text-[11px] text-slate-400">Locked out? </span>
                 <button
                   type="button"
-                  onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
+                  onClick={() => {
+                    setAuthMode("forgot");
+                    setOtpStep(1);
+                    setAuthError("");
+                    setAuthSuccessNotice("");
+                    setEnteredOtp("");
+                    setResetNewPassword("");
+                    setResetConfirmPassword("");
+                  }}
                   className="text-[11px] text-amber-400 font-bold hover:underline"
                 >
                   Recover Password with Real Email OTP 🔑
@@ -1409,7 +1516,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     setActiveTab("admin-works");
                     setShowAdminConsoleModal(true);
                   }}
-                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 cursor-pointer"
+                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20"
                 >
                   <Settings className="w-3.5 h-3.5" />
                   <span>Administrative Works ⚙️</span>
@@ -1455,7 +1562,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
             { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
-            { id: "market", label: "Live AI Market Radar", icon: FileText },
             ...(isAdminUser
               ? [{ id: "admin-works", label: "Admin Works ⚙️", icon: Settings, highlight: true }]
               : [])
@@ -1512,7 +1618,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB: ADMIN WORKS (ACCESSIBLE TO ADMIN AT ALL TIMES) */}
+        {/* TAB: ADMIN WORKS */}
         {activeTab === "admin-works" && isAdminUser && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
@@ -1543,20 +1649,20 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       <div className="flex items-center space-x-2">
                         {txn.status !== "approved" ? (
                           <button
-                            type="button"
-                            onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
+                            onClick={async () => {
+                              await fetch(`${API_BASE_URL}/subscriptions/status`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ txnId: txn._id || txn.id, status: "approved" })
+                              });
+                              fetchDbData();
+                            }}
+                            className="bg-emerald-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl"
                           >
                             Approve Pro
                           </button>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
-                            className="bg-rose-950 border border-rose-500/40 text-rose-400 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
-                          >
-                            Revoke Pro
-                          </button>
+                          <span className="text-emerald-400 font-bold">Approved</span>
                         )}
                       </div>
                     </div>
@@ -1571,7 +1677,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
@@ -1608,7 +1713,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       required
                       value={finderSkills}
                       onChange={(e) => setFinderSkills(e.target.value)}
-                      placeholder="e.g. Sales, Cooking, Accounting, Tech, Social Media"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
@@ -1620,7 +1724,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       required
                       value={finderInterests}
                       onChange={(e) => setFinderInterests(e.target.value)}
-                      placeholder="e.g. Healthy Food, Packaging, Fitness, Apparel"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
@@ -1661,7 +1764,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating 6 Inputs with AI...</span>
+                        <span>Evaluating with AI...</span>
                       </>
                     ) : (
                       <>
@@ -1713,9 +1816,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
                         <div className="flex justify-end pt-2">
                           <button
-                            type="button"
                             onClick={() => handleChooseVenture(idea)}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
+                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5"
                           >
                             <span>{isSelected ? "Active Venture Selected 🚀" : "Choose This Idea & Build Plan 🚀"}</span>
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -1808,9 +1910,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
                     <button
-                      type="button"
                       onClick={() => window.print()}
-                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1 cursor-pointer"
+                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Print PDF</span>
@@ -1845,7 +1946,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 {dailySprintTasks.map((t) => (
                   <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center text-xs">
                     <div className="flex items-center space-x-3">
-                      <button type="button" onClick={() => toggleDailyTask(t.id)}>
+                      <button onClick={() => toggleDailyTask(t.id)}>
                         {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
                       </button>
                       <div>
@@ -1854,9 +1955,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       </div>
                     </div>
                     <button
-                      type="button"
                       onClick={() => handleConsultDailyTaskAI(t)}
-                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1 cursor-pointer"
+                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1"
                     >
                       <Bot className="w-3.5 h-3.5" />
                       <span>AI SOP</span>
@@ -1869,7 +1969,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
-                  <button type="button" onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
+                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
                   <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
                   <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
                     {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
@@ -1882,454 +1982,97 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
         {/* TAB 5: CALCULATORS */}
         {activeTab === "tools" && (
-          <div className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
-                  <button
-                    type="button"
-                    onClick={handleRunMarginDoctorAI}
-                    disabled={isAnalyzingMargin}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Bot className="w-3.5 h-3.5" />
-                    <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Price Audit"}</span>
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-slate-400 block mb-1">Cost Price (₹)</label>
-                    <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Selling Price (₹)</label>
-                    <input type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
-                  </div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                  <div>Net Profit: <strong className="text-emerald-400">₹{netProfitUnit.toFixed(1)}</strong></div>
-                  <div>Margin: <strong className="text-amber-400">{netMarginPercent}%</strong></div>
-                </div>
-                {aiMarginAnalysis && (
-                  <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-xs text-amber-200">
-                    {aiMarginAnalysis}
-                  </div>
-                )}
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                <h3 className="font-bold text-slate-100 text-sm">Break-Even Calculator</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-slate-400 block mb-1">Overhead/mo (₹)</label>
-                    <input type="number" value={monthlyOverhead} onChange={(e) => setMonthlyOverhead(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
-                  </div>
-                  <div>
-                    <label className="text-slate-400 block mb-1">Variable Cost/unit (₹)</label>
-                    <input type="number" value={unitVariableCost} onChange={(e) => setUnitVariableCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
-                  </div>
-                </div>
-                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                  <div>Required Volume: <strong className="text-emerald-400">{breakEvenUnitsNeeded} Units/mo</strong></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Daily Cashflow & Udhaar Ledger */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
-                  <IndianRupee className="w-5 h-5 text-amber-400" />
-                  <span>Daily Cashflow & Udhaar Ledger</span>
-                </h3>
-                <div className="flex items-center space-x-3">
-                  <button
-                    type="button"
-                    onClick={handleRunLedgerAuditAI}
-                    disabled={isAuditingLedger}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
-                  >
-                    <Bot className="w-3.5 h-3.5" />
-                    <span>{isAuditingLedger ? "Auditing..." : "Run AI Cashflow Audit"}</span>
-                  </button>
-                  <span className="text-xs bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-200">
-                    Net: <strong className={netLedgerBalance >= 0 ? "text-emerald-400" : "text-rose-400"}>₹{netLedgerBalance.toLocaleString("en-IN")}</strong>
-                  </span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 text-xs">
-                <input
-                  type="text"
-                  placeholder="Transaction details..."
-                  value={ledgerDesc}
-                  onChange={(e) => setLedgerDesc(e.target.value)}
-                  className="sm:col-span-6 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
-                />
-                <input
-                  type="number"
-                  placeholder="Amount (₹)"
-                  value={ledgerAmount}
-                  onChange={(e) => setLedgerAmount(e.target.value)}
-                  className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
-                />
-                <select
-                  value={ledgerType}
-                  onChange={(e) => setLedgerType(e.target.value)}
-                  className="sm:col-span-2 bg-slate-950 border border-slate-700 rounded-xl px-2 py-2 text-slate-200"
-                >
-                  <option value="in">Cash In (+)</option>
-                  <option value="out">Cash Out (-)</option>
-                </select>
+                <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
                 <button
-                  type="button"
-                  onClick={() => {
-                    if (!ledgerDesc || !ledgerAmount) return;
-                    setLedgerEntries([
-                      ...ledgerEntries,
-                      { id: Date.now(), desc: ledgerDesc, amount: Number(ledgerAmount), type: ledgerType, date: "Today" }
-                    ]);
-                    setLedgerDesc("");
-                    setLedgerAmount("");
-                  }}
-                  className="sm:col-span-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center justify-center p-2 cursor-pointer"
+                  onClick={handleRunMarginDoctorAI}
+                  disabled={isAnalyzingMargin}
+                  className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1"
                 >
-                  <Plus className="w-4 h-4" />
+                  <Bot className="w-3.5 h-3.5" />
+                  <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Price Audit"}</span>
                 </button>
               </div>
-
-              {aiLedgerAudit && (
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed">
-                  <strong className="text-amber-400 block font-bold mb-1">AI Financial Health Diagnosis:</strong>
-                  {aiLedgerAudit}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400 block mb-1">Cost Price (₹)</label>
+                  <input type="number" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                </div>
+                <div>
+                  <label className="text-slate-400 block mb-1">Selling Price (₹)</label>
+                  <input type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                </div>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <div>Net Profit: <strong className="text-emerald-400">₹{netProfitUnit.toFixed(1)}</strong></div>
+                <div>Margin: <strong className="text-amber-400">{netMarginPercent}%</strong></div>
+              </div>
+              {aiMarginAnalysis && (
+                <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-xs text-amber-200">
+                  {aiMarginAnalysis}
                 </div>
               )}
             </div>
-          </div>
-        )}
 
-        {/* TAB 6: LIVE AI MARKET RADAR */}
-        {activeTab === "market" && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
-              <div>
-                <h2 className="text-xl font-bold text-slate-100 flex items-center space-x-2">
-                  <BookOpen className="w-5 h-5 text-amber-400" />
-                  <span>Live Indian SME Market Radar</span>
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={handleScanLiveMarketAI}
-                disabled={isScanningMarket}
-                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-2 shadow-md transition cursor-pointer"
-              >
-                {isScanningMarket ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                <span>Scan Market Radar Now</span>
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {marketTrends.map((t, idx) => (
-                <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
-                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">
-                    {t.tag}
-                  </span>
-                  <h3 className="font-bold text-slate-100 text-sm">{t.title}</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">{t.desc}</p>
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+              <h3 className="font-bold text-slate-100 text-sm">Break-Even Calculator</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-slate-400 block mb-1">Overhead/mo (₹)</label>
+                  <input type="number" value={monthlyOverhead} onChange={(e) => setMonthlyOverhead(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
                 </div>
-              ))}
+                <div>
+                  <label className="text-slate-400 block mb-1">Variable Cost/unit (₹)</label>
+                  <input type="number" value={unitVariableCost} onChange={(e) => setUnitVariableCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                </div>
+              </div>
+              <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
+                <div>Required Volume: <strong className="text-emerald-400">{breakEvenUnitsNeeded} Units/mo</strong></div>
+              </div>
             </div>
           </div>
         )}
       </main>
 
-      {/* 24/7 DOCKED FLOATING BIZMENTOR CHAT */}
-      <div className="fixed bottom-5 right-5 z-50">
-        {!isChatOpen ? (
-          <button
-            type="button"
-            onClick={() => setIsChatOpen(true)}
-            className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold px-4 py-3 rounded-full shadow-2xl flex items-center space-x-2 transition transform hover:scale-105 cursor-pointer"
-          >
-            <MessageSquare className="w-5 h-5" />
-            <span className="text-sm">Ask BizMentor AI 🇮🇳</span>
-          </button>
-        ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[480px]">
-            <div className="p-3 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-                <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
-              </div>
-              <button type="button" onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="flex-1 p-3 overflow-y-auto space-y-3 text-xs">
-              {chatMessages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-3 py-2 ${
-                      msg.sender === "user" ? "bg-amber-500 text-slate-950 font-medium" : "bg-slate-800 text-slate-200"
-                    }`}
-                  >
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              {isChatLoading && (
-                <div className="text-slate-500 text-[11px] flex items-center space-x-1.5">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>BizMentor is formulating advice...</span>
-                </div>
-              )}
-            </div>
-
-            <div className="p-2 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-1.5">
-              <input
-                type="text"
-                placeholder="Ask about GST, credit, wholesale..."
-                value={inputChat}
-                onChange={(e) => setInputChat(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
-              />
-              <button type="button" onClick={handleSendChat} className="bg-amber-500 hover:bg-amber-400 text-slate-950 p-2 rounded-xl cursor-pointer">
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* SUBSCRIPTION MODAL */}
-      {showPaywallModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
-            <button type="button" onClick={() => setShowPaywallModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 cursor-pointer">
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center space-y-2">
-              <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-3 py-1 rounded-full font-bold">
-                BizNavigator Pro Upgrade
-              </span>
-              <h3 className="text-2xl font-black text-slate-100">
-                Free limit reached ({FREE_USAGE_LIMIT}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
-              </h3>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
-                <div>
-                  <span className="text-xs text-slate-400">Day Pass</span>
-                  <div className="text-2xl font-extrabold text-slate-100 mt-1">₹49</div>
-                  <span className="text-[10px] text-slate-500">24 Hours Access</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { window.open(PAYMENT_LINKS.dayPass, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <span>Pay ₹49</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              </div>
-
-              <div className="bg-slate-950 border-2 border-amber-500/80 p-4 rounded-2xl text-center space-y-3 relative flex flex-col justify-between shadow-lg shadow-amber-500/10">
-                <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full">
-                  MOST POPULAR
-                </span>
-                <div>
-                  <span className="text-xs text-amber-400 font-semibold">Monthly Pro</span>
-                  <div className="text-2xl font-black text-slate-100 mt-1">₹249</div>
-                  <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { window.open(PAYMENT_LINKS.monthlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <span>Pay ₹249</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              </div>
-
-              <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
-                <div>
-                  <span className="text-xs text-slate-400">3 Months</span>
-                  <div className="text-2xl font-extrabold text-slate-100 mt-1">₹599</div>
-                  <span className="text-[10px] text-emerald-400">Save 20%</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { window.open(PAYMENT_LINKS.quarterlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
-                >
-                  <span>Pay ₹599</span>
-                  <ExternalLink className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-
-            <div className="text-center pt-2">
-              <button
-                type="button"
-                onClick={() => { setShowPaywallModal(false); setShowVerificationModal(true); setVerificationError(""); }}
-                className="text-xs text-slate-400 hover:text-amber-400 underline cursor-pointer"
-              >
-                Already paid? Submit Razorpay Payment ID for verification
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STRICT PAYMENT VERIFICATION MODAL */}
-      {showVerificationModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
-            <button type="button" onClick={() => setShowVerificationModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 cursor-pointer">
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center space-y-1">
-              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100">Strict Payment Verification</h3>
-              <p className="text-xs text-slate-400">
-                Provide your official <strong>Razorpay Payment ID</strong> (starts with <code>pay_</code>).
-              </p>
-            </div>
-
-            {verificationError && (
-              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
-                <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
-                <span>{verificationError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleSubmitVerification} className="space-y-4 pt-2 text-xs">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Razorpay Payment ID *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. pay_Pxyz89234abcd"
-                  value={inputPaymentId}
-                  onChange={(e) => setInputPaymentId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-semibold mb-1">Plan Paid For</label>
-                <select
-                  value={selectedPlanForVerification}
-                  onChange={(e) => setSelectedPlanForVerification(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
-                >
-                  <option>Day Pass (₹49)</option>
-                  <option>Monthly Pro (₹249)</option>
-                  <option>Quarterly Pro (₹599)</option>
-                </select>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isVerifying}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
-              >
-                {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Submit for Admin Approval</span>}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ============================================================== */}
-      {/* ADMINISTRATIVE WORKS MODAL (GUARANTEED TO OPEN)                 */}
-      {/* ============================================================== */}
+      {/* ADMIN CONSOLE MODAL */}
       {showAdminConsoleModal && isAdminUser && (
         <div className="fixed inset-0 bg-slate-950/85 z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-2xl w-full space-y-4 text-xs">
             <div className="flex justify-between items-center border-b border-slate-800 pb-2">
               <h3 className="font-bold text-slate-100 text-sm">Administrative Works Console (MongoDB)</h3>
-              <button type="button" onClick={() => setShowAdminConsoleModal(false)} className="cursor-pointer">
-                <X className="w-5 h-5 text-slate-400" />
-              </button>
+              <button onClick={() => setShowAdminConsoleModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
-
-            <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setAdminConsoleTab("txns")}
-                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "txns" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
-              >
-                Transactions ({submittedTxns.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminConsoleTab("users")}
-                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "users" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
-              >
-                Users ({registeredUsersList.length})
-              </button>
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {submittedTxns.map((txn) => (
+                <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
+                  <div>
+                    <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
+                    <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {txn.status !== "approved" ? (
+                      <button
+                        onClick={async () => {
+                          await fetch(`${API_BASE_URL}/subscriptions/status`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ txnId: txn._id || txn.id, status: "approved" })
+                          });
+                          fetchDbData();
+                        }}
+                        className="bg-emerald-500 text-slate-950 px-3 py-1 rounded-lg font-bold"
+                      >
+                        Approve Pro
+                      </button>
+                    ) : (
+                      <span className="text-emerald-400 font-bold">Approved</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-
-            {adminConsoleTab === "txns" ? (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {submittedTxns.map((txn) => (
-                  <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                      <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {txn.status !== "approved" ? (
-                        <button
-                          type="button"
-                          onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
-                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-lg font-bold cursor-pointer"
-                        >
-                          Approve Pro
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
-                          className="bg-rose-950 border border-rose-500/40 text-rose-400 px-3 py-1 rounded-lg font-bold cursor-pointer"
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {registeredUsersList.map((u, i) => (
-                  <div key={u._id || i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-200">{u.name}</div>
-                      <div className="text-slate-400 text-[11px]">{u.emailOrPhone}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleAdminToggleUserPro(u.emailOrPhone)}
-                      className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${u.isProUser ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}
-                    >
-                      {u.isProUser ? "Pro Active (Revoke)" : "Grant Pro"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
