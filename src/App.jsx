@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -777,17 +776,6 @@ Return ONLY valid JSON matching this schema:
     setIsFindingIdeas(false);
   };
 
-  const handleChooseVenture = (idea) => {
-    setSelectedVenture(idea);
-    setBusinessIdea(`${idea.title} - ${idea.tagline}`);
-    setInitialCapital(finderBudget);
-    setTargetCity(finderLocation);
-    setCustomerSegment(idea.targetAudience);
-    setScoutConcept(idea.title);
-    setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
-    setActiveTab("location-scout");
-  };
-
   // ONE-CLICK DEEP ANALYSIS
   const handleOpenDeepAnalysis = async (idea) => {
     setDeepAnalysisIdea(idea);
@@ -866,86 +854,107 @@ Return ONLY valid JSON matching this exact structure:
   };
 
   // ==========================================
-  // TAB 2: DYNAMIC CITY-SPECIFIC LOCATION SCOUT
+  // TAB 2: DEMAND & SUITABILITY-DRIVEN LOCATION SCOUT
   // ==========================================
   const [scoutCity, setScoutCity] = useState("Bengaluru");
-  const [scoutConcept, setScoutConcept] = useState("Specialty Chai & Quick Refreshment Kiosk");
-  const [scoutBudgetRent, setScoutBudgetRent] = useState("25000");
-  const [scoutTrafficType, setScoutTrafficType] = useState("Corporate Tech Park & Office Commuters");
+  const [scoutConcept, setScoutConcept] = useState("Artisanal Chai & Fresh Snack Kiosk");
+  const [scoutNeeds, setScoutNeeds] = useState("High morning pedestrian footfall, sub-3 min grab-and-go access, compact counter space, high UPI soundbox usage");
+  const [scoutDemographic, setScoutDemographic] = useState("Corporate tech workforce, co-working tenants & daily commuters (Ages 21-38)");
   const [isScoutingLocations, setIsScoutingLocations] = useState(false);
-  const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout`, null));
+  const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout_demand`, null));
+
+  // Automatically link selected venture from Idea Matcher to Location Scout
+  const handleChooseVenture = (idea) => {
+    setSelectedVenture(idea);
+    setBusinessIdea(`${idea.title} - ${idea.tagline}`);
+    setInitialCapital(finderBudget);
+    setTargetCity(finderLocation);
+    setCustomerSegment(idea.targetAudience);
+
+    // Seed Location Scout with Idea Specifics
+    setScoutConcept(idea.title);
+    setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
+    setScoutDemographic(idea.targetAudience || "Daily consumers & commuters in this city");
+    setScoutNeeds(`Optimized for ${idea.category} operations, high target-audience footfall, direct visibility`);
+    setActiveTab("location-scout");
+  };
 
   const handleEvaluateLocations = async (e) => {
     e.preventDefault();
     setIsScoutingLocations(true);
 
-    const prompt = `Act as an elite commercial real estate & footfall consultant for Indian SMEs.
-Evaluate the BEST micro-locations strictly inside "${scoutCity}" for the business: "${scoutConcept}".
-Rent Budget: Up to ₹${scoutBudgetRent}/month | Desired Footfall: ${scoutTrafficType}
+    const prompt = `Act as an expert Indian Retail Demographer, Geospatial SME Strategist, and Footfall Demand Analyst.
+Evaluate the MOST SUITABLE micro-locations strictly inside "${scoutCity}" based purely on CONSUMER DEMAND, UNMET LOCAL NEEDS, and OPERATIONAL FIT for this concept:
+Concept: "${scoutConcept}"
+Operational & Placement Needs: "${scoutNeeds}"
+Target Catchment Demographic: "${scoutDemographic}"
 
-Identify 3 REAL, SPECIFIC micro-markets, streets, or commercial nodes in ${scoutCity}.
+DO NOT FOCUS ON RENT OR REAL ESTATE LEASING RATES.
+Focus strictly on: Where is the strongest demand gap? Why does this specific crowd in ${scoutCity} need this thing? Why will it succeed in these exact streets?
+
+Identify 3 REAL, SPECIFIC micro-markets, streets, or junctions in ${scoutCity}.
 Return ONLY valid JSON matching this schema:
 {
-  "cityOverview": "2-sentence strategic retail summary of ${scoutCity} for ${scoutConcept}.",
+  "cityDemandOverview": "2-sentence strategic synthesis of consumer demand patterns and unmet cravings/needs for ${scoutConcept} across ${scoutCity}.",
   "locations": [
     {
-      "name": "Exact Commercial Hub / Street Name in ${scoutCity}",
-      "zoneClassification": "High-Street Retail / Tech Corridor / Transit Node / Dense Residential Hub",
-      "suitabilityScore": 95,
-      "estimatedRent": "₹120 - ₹170 / sq.ft (approx ₹22,000/mo for 150 sq.ft)",
-      "footfallHours": "8:30 AM - 11:30 AM & 5:00 PM - 9:00 PM",
-      "competitionDensity": "Moderate (3 existing counters within 400m)",
-      "whyItConverts": "Detailed, specific explanation of why this street converts for ${scoutConcept}.",
-      "negotiationTip": "Exact landlord tip (e.g. ask for 1-month deposit instead of standard 6 months, request 20-day rent-free fit-out period)."
+      "name": "Exact Street / Junction / Commercial Hub Name in ${scoutCity}",
+      "catchmentType": "Corporate Tech Corridor / Metro Transit Node / High-Density Student Hub / Affluent Residential Market",
+      "suitabilityScore": 96,
+      "demandIntensity": "Critical Underserved Demand (Supply Gap)",
+      "unmetNeedAnalysis": "Detailed breakdown of what customers in this specific neighborhood are frustrated by and why ${scoutConcept} fulfills an urgent daily need.",
+      "idealPlacementSpot": "Hyper-specific placement advice (e.g., 'Within 30 meters of exit gate #2, directly opposite the main co-working entry lane').",
+      "demandTriggers": "Exact hours and routines when demand surges (e.g., '8:15 AM - 10:45 AM pre-shift rush and 4:30 PM - 7:00 PM tea break').",
+      "competitionVoid": "Why existing alternatives or legacy shops in this zone are failing to satisfy this demand (e.g., poor hygiene, slow billing, outdated menu)."
     }
   ]
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Commercial Location Evaluator for Indian SMEs. Return JSON only.");
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand & Location Feasibility Strategist. Return JSON only.");
     const parsed = extractJsonFromText(raw);
 
     if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
       setScoutResults(parsed);
-      localStorage.setItem(`${STORAGE_PREFIX}location_scout`, JSON.stringify(parsed));
+      localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(parsed));
     } else {
-      const rentVal = parseInt(scoutBudgetRent) || 25000;
+      // Intelligent Fallback based on Concept & City
       const fallback = {
-        cityOverview: `Commercial dynamics in ${scoutCity} favor compact footprint formats (100-200 sq.ft) with high morning and evening commuter visibility.`,
+        cityDemandOverview: `In ${scoutCity}, demand for ${scoutConcept} is driven by convenience, speed of service, and visible hygiene. Pockets with dense office transit and youth hubs face severe supply gaps during peak hours.`,
         locations: [
           {
-            name: `${scoutCity} Metro Station / Transit Connector Corridor`,
-            zoneClassification: "Transit Node & High-Street",
-            suitabilityScore: 95,
-            estimatedRent: `₹125 - ₹175 / sq.ft (approx ₹${Math.round(rentVal * 0.9).toLocaleString('en-IN')}/mo)`,
-            footfallHours: "8:00 AM - 11:30 AM & 5:30 PM - 9:30 PM",
-            competitionDensity: "Moderate Cluster (High daily footfall turnover)",
-            whyItConverts: `Commuters exiting transit routes have high impulse intent. ${scoutConcept} matches the need for sub-3 minute checkout on their daily route.`,
-            negotiationTip: "Offer an 11-month lease agreement. Negotiate a 20-day rent-free fit-out period for setup and signage installation."
+            name: `${scoutCity} Outer Ring Road / Primary IT Transit Hub`,
+            catchmentType: "Corporate Tech Corridor & Transit Node",
+            suitabilityScore: 96,
+            demandIntensity: "High Supply Deficit (Severe Peak Hours Squeeze)",
+            unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Existing local options are either unhygienic roadside kiosks or overpriced sit-down cafes. There is zero sub-3 minute hygienic grab-and-go alternative.`,
+            idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the pedestrian morning walkway.",
+            demandTriggers: "8:00 AM – 11:00 AM (Morning breakfast rush) & 4:30 PM – 7:30 PM (Evening transition window).",
+            competitionVoid: "Current vendors suffer from slow cash-only billing, cluttered counters, and inconsistent taste, turning away busy tech workers."
           },
           {
-            name: `${scoutCity} Corporate Tech Park Main Gate Entry`,
-            zoneClassification: "Corporate / Tech Corridor",
-            suitabilityScore: 92,
-            estimatedRent: `₹140 - ₹190 / sq.ft (approx ₹${rentVal.toLocaleString('en-IN')}/mo)`,
-            footfallHours: "9:00 AM - 11:30 AM, 1:00 PM - 2:30 PM & 4:30 PM - 8:00 PM",
-            competitionDensity: "High Density (Requires distinct presentation or faster service)",
-            whyItConverts: `Continuous stream of tech professionals seeking hygienic refreshments. High UPI digital payment penetration with predictable Monday-Friday volume.`,
-            negotiationTip: "Request lower fixed rent in exchange for 3-month advance security deposit and standard 5% annual escalation clause."
+            name: `${scoutCity} High-Density Coaching & Student PG Belt`,
+            catchmentType: "Youth, College & Student Residence Hub",
+            suitabilityScore: 91,
+            demandIntensity: "Sustained High Demand (Budget-Conscious Volume)",
+            unmetNeedAnalysis: `Students and young interns in this pocket require quick, fresh, value-for-money sustenance between lectures and study sessions. High frequency of repeat orders (5-6 times per week).`,
+            idealPlacementSpot: "Directly opposite the central study library lane, near main residential PG clusters.",
+            demandTriggers: "11:30 AM – 2:00 PM (Quick midday refuel) & 5:00 PM – 10:00 PM (Post-coaching dinner/snack rush).",
+            competitionVoid: "Nearby legacy eateries have slow turnaround times and uninspiring menus that don't appeal to Gen-Z taste preferences."
           },
           {
-            name: `${scoutCity} High-Street Market Lane (Near Key Supermarkets)`,
-            zoneClassification: "Dense Residential High-Street",
+            name: `${scoutCity} Metro Connector / Commuter Feeder Junction`,
+            catchmentType: "High-Frequency Intermodal Transit Hub",
             suitabilityScore: 88,
-            estimatedRent: `₹110 - ₹150 / sq.ft (approx ₹${Math.round(rentVal * 0.8).toLocaleString('en-IN')}/mo)`,
-            footfallHours: "10:30 AM - 1:30 PM & 5:00 PM - 9:30 PM (Surges on weekends)",
-            competitionDensity: "Low to Moderate",
-            whyItConverts: `Captures family footfall and evening neighborhood casual strolls. Consistent 7-day revenue stream without weekend office slumps.`,
-            negotiationTip: "Ensure sub-metering for commercial electricity is clearly demarcated in the lease to avoid landlord markups."
+            demandIntensity: "Impulse Grab-and-Go Demand",
+            unmetNeedAnalysis: `Pedestrian commuters switching transit modes require immediate, friction-free service. High purchase intent where product visibility and UPI soundbox checkout trigger rapid impulse purchases.`,
+            idealPlacementSpot: "Along the exit escalator descent line or within 25 meters of the public bus feeder stop.",
+            demandTriggers: "8:30 AM – 10:30 AM (Morning outbound rush) & 6:00 PM – 9:00 PM (Inbound evening homecoming).",
+            competitionVoid: "Commuters refuse to cross busy signals; existing stores placed away from direct footpaths miss 80% of footfall traffic."
           }
         ]
       };
       setScoutResults(fallback);
-      localStorage.setItem(`${STORAGE_PREFIX}location_scout`, JSON.stringify(fallback));
+      localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(fallback));
     }
     setIsScoutingLocations(false);
   };
@@ -2182,147 +2191,188 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
         )}
 
         {/* ========================================================= */}
-        {/* TAB 2: DYNAMIC CITY-SPECIFIC LOCATION SCOUT               */}
+        {/* TAB 2: DEMAND & SUITABILITY-DRIVEN LOCATION SCOUT         */}
         {/* ========================================================= */}
         {activeTab === "location-scout" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Input Form Column */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="border-b border-slate-800 pb-3">
-                  <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2">
-                    <MapPin className="w-5 h-5 text-amber-400" />
-                    <span>Commercial Micro-Market Scout</span>
+                  <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+                    <Compass className="w-4 h-4" />
+                    <span>Demand & Catchment Scout</span>
+                  </div>
+                  <h2 className="text-base font-extrabold text-slate-100 mt-1">
+                    Pinpoint Local Demand Hotspots
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Evaluates commercial streets and hubs strictly within your target Indian city.
+                    Evaluates locations based on unmet customer hunger, catchment footfall, and operational fit—not rental rates.
                   </p>
                 </div>
 
                 <form onSubmit={handleEvaluateLocations} className="space-y-3.5 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Metro</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      1. Target Indian City / Metro Area *
+                    </label>
                     <input
                       type="text"
                       required
                       value={scoutCity}
                       onChange={(e) => setScoutCity(e.target.value)}
-                      placeholder="e.g. Bengaluru, Mumbai, Delhi-NCR, Pune, Ahmedabad"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="e.g. Bengaluru, Mumbai, Delhi-NCR, Hyderabad, Pune, Indore"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      2. Business Offering / Format *
+                    </label>
                     <input
                       type="text"
                       required
                       value={scoutConcept}
                       onChange={(e) => setScoutConcept(e.target.value)}
-                      placeholder="e.g. Specialty Chai & Snack Kiosk"
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      placeholder="e.g. Artisanal Cold-Brew & Chai Kiosk, Fast 2W EV Charging Station"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Monthly Rent Budget (₹/mo)</label>
-                    <input
-                      type="number"
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      3. Operational & Placement Requirements *
+                    </label>
+                    <textarea
+                      rows={2}
                       required
-                      value={scoutBudgetRent}
-                      onChange={(e) => setScoutBudgetRent(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                      value={scoutNeeds}
+                      onChange={(e) => setScoutNeeds(e.target.value)}
+                      placeholder="e.g. High morning pedestrian density, sub-3 min grab-and-go access, compact counter space, high UPI soundbox usage"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Desired Footfall Demographic</label>
-                    <select
-                      value={scoutTrafficType}
-                      onChange={(e) => setScoutTrafficType(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200"
-                    >
-                      <option>Corporate Tech Park & Office Commuters</option>
-                      <option>Transit Hub / Metro Commuters</option>
-                      <option>High-Street Fashion & Family Shoppers</option>
-                      <option>Dense Student Campus / Coaching Corridor</option>
-                      <option>Residential Society Main Market</option>
-                    </select>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      4. Target Catchment Demographic *
+                    </label>
+                    <textarea
+                      rows={2}
+                      required
+                      value={scoutDemographic}
+                      onChange={(e) => setScoutDemographic(e.target.value)}
+                      placeholder="e.g. Working IT professionals, coaching students, hospital visitors, evening shoppers"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                    />
                   </div>
 
                   <button
                     type="submit"
                     disabled={isScoutingLocations}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs flex items-center justify-center space-x-2 shadow-lg cursor-pointer"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs flex items-center justify-center space-x-2 shadow-lg shadow-amber-500/10 mt-2 cursor-pointer"
                   >
                     {isScoutingLocations ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Scouting Real Micro-Markets in {scoutCity}...</span>
+                        <span>Analyzing Catchment Demand in {scoutCity}...</span>
                       </>
                     ) : (
                       <>
-                        <Compass className="w-4 h-4" />
-                        <span>Scout Real Micro-Zones in {scoutCity}</span>
+                        <Target className="w-4 h-4" />
+                        <span>Evaluate Demand Hotspots in {scoutCity}</span>
                       </>
                     )}
                   </button>
                 </form>
               </div>
 
-              {/* Locations Output Column */}
+              {/* Results Output Column */}
               <div className="lg:col-span-7 space-y-4">
-                {scoutResults?.cityOverview && (
-                  <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed">
-                    <strong className="text-amber-400 block font-bold mb-1">Commercial Landscape in {scoutCity}:</strong>
-                    {scoutResults.cityOverview}
+                {scoutResults?.cityDemandOverview && (
+                  <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed shadow-lg">
+                    <div className="flex items-center space-x-2 text-amber-400 font-bold text-[11px] mb-1">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Catchment Demand Macro-Diagnosis for {scoutCity}:</span>
+                    </div>
+                    {scoutResults.cityDemandOverview}
                   </div>
                 )}
 
                 {scoutResults?.locations ? (
                   scoutResults.locations.map((loc, idx) => (
-                    <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3 shadow-lg">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                    <div
+                      key={idx}
+                      className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3.5 shadow-xl transition hover:border-slate-700"
+                    >
+                      {/* Header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                         <div>
                           <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 mr-2">
-                            {loc.zoneClassification}
+                            {loc.catchmentType}
                           </span>
                           <h4 className="text-base font-extrabold text-slate-100 mt-1">{loc.name}</h4>
                         </div>
-                        <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-xl">
-                          {loc.suitabilityScore}% Conversion Match
+                        <div className="flex items-center space-x-2">
+                          <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-500/30 px-3 py-1 rounded-xl flex items-center space-x-1">
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span>{loc.suitabilityScore}% Demand Match</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Demand Intensity Badge */}
+                      <div className="bg-amber-950/20 border border-amber-500/30 px-3.5 py-2 rounded-2xl flex items-center space-x-2 text-xs text-amber-300">
+                        <Flame className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>
+                          <strong>Demand Profile: </strong> {loc.demandIntensity}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-slate-300">
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">Estimated Rent:</span>
-                          <strong className="text-amber-300">{loc.estimatedRent}</strong>
+                      {/* Unmet Need & Customer Frustration */}
+                      <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1">
+                        <strong className="text-slate-100 flex items-center space-x-1.5">
+                          <Target className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Unmet Need & Local Frustration:</span>
+                        </strong>
+                        <p className="leading-relaxed text-slate-300">{loc.unmetNeedAnalysis}</p>
+                      </div>
+
+                      {/* Demand Triggers & Ideal Positioning */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
+                            <Clock className="w-3 h-3 text-sky-400" />
+                            <span>Peak Demand Hours</span>
+                          </span>
+                          <p className="font-semibold text-slate-200">{loc.demandTriggers}</p>
                         </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">Peak Footfall Hours:</span>
-                          <strong className="text-slate-200">{loc.footfallHours}</strong>
-                        </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
-                          <span className="text-slate-400 block text-[10px]">Competition Density:</span>
-                          <strong className="text-slate-200">{loc.competitionDensity}</strong>
+                        <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
+                          <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
+                            <MapPin className="w-3 h-3 text-emerald-400" />
+                            <span>Ideal Placement Spot</span>
+                          </span>
+                          <p className="font-semibold text-slate-200">{loc.idealPlacementSpot}</p>
                         </div>
                       </div>
 
-                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed">
-                        <strong className="text-amber-400">Why this area converts: </strong>
-                        {loc.whyItConverts}
-                      </div>
-
-                      <div className="bg-indigo-950/20 border border-indigo-500/30 p-3 rounded-2xl text-[11px] text-indigo-300">
-                        <strong>💡 Landlord Lease Negotiation Strategy: </strong>
-                        {loc.negotiationTip}
+                      {/* Competition Void */}
+                      <div className="bg-indigo-950/20 border border-indigo-500/30 p-3.5 rounded-2xl text-[11px] text-indigo-300 space-y-1">
+                        <strong className="text-indigo-200 flex items-center space-x-1.5">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          <span>Why Existing Alternatives Fail (Your Competitive Edge):</span>
+                        </strong>
+                        <p className="leading-relaxed">{loc.competitionVoid}</p>
                       </div>
                     </div>
                   ))
                 ) : (
                   <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
-                    <MapPin className="w-10 h-10 text-slate-700 mb-2" />
-                    <p className="text-sm font-semibold text-slate-400">Enter your target city and rent budget to scout prime commercial nodes.</p>
+                    <Compass className="w-10 h-10 text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">
+                      Enter your target city and operational needs to uncover high-demand pockets.
+                    </p>
                   </div>
                 )}
               </div>
@@ -2694,7 +2744,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
             {/* SOP ADVICE MODAL */}
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
                   <button
                     type="button"
                     onClick={() => setTaskAdviceModal(null)}
