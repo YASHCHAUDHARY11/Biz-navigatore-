@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -157,6 +156,9 @@ export default function BizNavigatorApp() {
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
+  // Legal Modal State ('terms', 'privacy', 'refund', 'contact')
+  const [legalModalType, setLegalModalType] = useState(null);
+
   // Navigation
   const [activeTab, setActiveTab] = useState(() => {
     const user = safeGetStorage(`${STORAGE_PREFIX}user`, null);
@@ -211,7 +213,7 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // Sync DB records from backend API (Safe against async race condition)
+  // Sync DB records from backend API
   const fetchDbData = async (userParam = currentUser) => {
     try {
       const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
@@ -301,7 +303,6 @@ export default function BizNavigatorApp() {
       setCurrentUser(data.user);
       setAuthPassword("");
 
-      // If authenticated as Admin, sync DB immediately with the returned admin user object
       if (data.user?.role?.toLowerCase() === "admin") {
         setActiveTab("admin-works");
         fetchDbData(data.user);
@@ -335,7 +336,12 @@ export default function BizNavigatorApp() {
       let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone.trim(), name: authFullName.trim() })
+        body: JSON.stringify({
+          name: authFullName.trim(),
+          emailOrPhone: authEmailOrPhone.trim(),
+          businessName: authBusinessName.trim(),
+          password: authPassword.trim()
+        })
       });
 
       if (!res.ok) {
@@ -377,14 +383,11 @@ export default function BizNavigatorApp() {
 
     setIsAuthLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+      const res = await fetch(`${API_BASE_URL}/auth/register-verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: authFullName.trim(),
           emailOrPhone: authEmailOrPhone.trim(),
-          businessName: authBusinessName.trim(),
-          password: authPassword.trim(),
           otp: signupEnteredOtp.trim()
         })
       });
@@ -410,7 +413,6 @@ export default function BizNavigatorApp() {
     setAuthError("");
     setAuthSuccessNotice("");
 
-    // Fresh reset of password fields to eliminate residual strings
     setResetNewPassword("");
     setResetConfirmPassword("");
     setEnteredOtp("");
@@ -437,7 +439,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Fixed password reset comparison
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -520,7 +521,6 @@ export default function BizNavigatorApp() {
 
     setLastAiError("");
 
-    // 1. Primary Route: Server API using process.env.GEMINI_API_KEY
     try {
       const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
         method: "POST",
@@ -549,7 +549,6 @@ export default function BizNavigatorApp() {
       }
     } catch (err) {}
 
-    // 2. Direct Fallback via Vercel Client Variable
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
@@ -587,9 +586,7 @@ export default function BizNavigatorApp() {
     return null;
   };
 
-  // ==============================================================
-  // TAB 1: 6-INPUT DYNAMIC AI IDEA MATCHER
-  // ==============================================================
+  // --- TAB 1: 6-INPUT DYNAMIC AI IDEA MATCHER ---
   const [finderBudget, setFinderBudget] = useState("150000");
   const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Corridor)");
   const [finderSkills, setFinderSkills] = useState("Direct Sales, Cooking, Digital Marketing");
@@ -859,8 +856,6 @@ Return ONLY valid JSON:
   const [roadmapFilter, setRoadmapFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
-  const [editingNoteId, setEditingNoteId] = useState(null);
-  const [tempNoteText, setTempNoteText] = useState("");
 
   useEffect(() => {
     localStorage.setItem(`${STORAGE_PREFIX}daily_sprint`, JSON.stringify(dailySprintTasks));
@@ -869,13 +864,6 @@ Return ONLY valid JSON:
   const toggleDailyTask = (id) => {
     const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
-  };
-
-  const handleSaveTaskNote = (id) => {
-    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, notes: tempNoteText } : t));
-    setDailySprintTasks(updated);
-    setEditingNoteId(null);
-    setTempNoteText("");
   };
 
   const handleConsultDailyTaskAI = async (taskItem) => {
@@ -901,12 +889,6 @@ Include:
 
   const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
   const sprintProgressPercent = dailySprintTasks.length > 0 ? Math.round((completedDailyCount / dailySprintTasks.length) * 100) : 0;
-
-  const filteredTasks = dailySprintTasks.filter((t) => {
-    if (roadmapFilter === "pending") return !t.completed;
-    if (roadmapFilter === "completed") return t.completed;
-    return true;
-  });
 
   // --- TAB 5: CALCULATORS & LEDGER ---
   const [costPrice, setCostPrice] = useState(250);
@@ -1026,7 +1008,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   };
 
   // ==============================================================
-  // ADMIN CONTROL ACTIONS (ROBUST MONGODB SYNC & APPROVAL)
+  // ADMIN CONTROL ACTIONS
   // ==============================================================
   const handleAdminApproveTxn = async (txn) => {
     const txnId = txn._id || txn.id;
@@ -1042,7 +1024,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         })
       });
 
-      // Update state locally immediately
       setSubmittedTxns((prev) =>
         prev.map((t) => (t._id === txnId || t.id === txnId || t.paymentId === txn.paymentId ? { ...t, status: "approved" } : t))
       );
@@ -1099,7 +1080,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
   const handleAdminToggleUserPro = async (emailOrPhone) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
+      await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emailOrPhone })
@@ -1155,12 +1136,12 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   };
 
   // ==========================================
-  // AUTH WALL (MODAL OR LANDING)
+  // AUTH WALL
   // ==========================================
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
-        <div className="w-full max-w-md space-y-6">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
+        <div className="w-full max-w-md space-y-6 my-auto">
           <div className="text-center space-y-2">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-600 flex items-center justify-center shadow-xl shadow-amber-500/20 mx-auto">
               <TrendingUp className="text-slate-950 font-black h-8 w-8" />
@@ -1336,7 +1317,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   </button>
                 </form>
               ) : (
-                /* STEP 2: VERIFY OTP & RESET PASSWORD WITH EYE TOGGLE & LIVE CHECK */
                 <form onSubmit={handleForgotVerifyAndReset} className="space-y-3.5 text-xs">
                   <div>
                     <label className="block text-slate-300 font-semibold mb-1">6-Digit OTP from Email</label>
@@ -1417,7 +1397,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </form>
               )
             ) : (
-              /* LOGIN & ADMIN LOGIN FORM */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
@@ -1511,6 +1490,117 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             )}
           </div>
         </div>
+
+        {/* Global Footer (Visible on Login/Signup too) */}
+        <footer className="w-full max-w-7xl mx-auto border-t border-slate-800/80 pt-4 pb-2 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div>BizNavigator © 2026. Made for Indian SMEs.</div>
+          <div className="flex flex-wrap gap-4 text-slate-400 font-medium">
+            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">Terms of Service</button>
+            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">Privacy Policy</button>
+            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">Refund Policy</button>
+            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">Contact & Support</button>
+          </div>
+        </footer>
+
+        {/* LEGAL POLICIES MODAL (POPUP) */}
+        {legalModalType && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
+              <button
+                type="button"
+                onClick={() => setLegalModalType(null)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              {legalModalType === "terms" && (
+                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-amber-400" />
+                    Terms of Service & AI Disclaimer
+                  </h2>
+                  <p className="text-slate-400">Last updated: October 2026</p>
+
+                  <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
+                    <strong>⚠️ Mandatory Financial & Legal Disclaimer:</strong> BizNavigator provides AI-driven business feasibility estimations, financial calculators, and market insights for <strong>educational and informational purposes only</strong>. We do not provide statutory chartered accountancy, legal advisory, or guaranteed profit assurances. Actual business outcomes vary by execution, regional licensing, and market volatility.
+                  </div>
+
+                  <h3 className="font-bold text-slate-100 text-sm mt-3">1. Account Security & Fair Usage</h3>
+                  <p>Users are responsible for safeguarding their login credentials. Any automated abuse, excessive scraping, or sharing of Pro memberships across unauthorized third parties will lead to permanent account suspension without notice.</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm mt-3">2. Intellectual Property</h3>
+                  <p>The proprietary algorithms, branding, custom UI, and system design of BizNavigator remain the exclusive property of BizNavigator Headquarters.</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm mt-3">3. Governing Law</h3>
+                  <p>These terms are governed by the laws of India. Any legal dispute or claims arising out of services shall be subject to the exclusive jurisdiction of the competent courts in New Delhi, India.</p>
+                </div>
+              )}
+
+              {legalModalType === "privacy" && (
+                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                    Privacy Policy (DPDP Act 2023 Compliant)
+                  </h2>
+                  <p className="text-slate-400">Last updated: October 2026</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm">1. Data We Collect</h3>
+                  <p>We collect your Name, Email address, Business name, and hashed passwords solely for profile management, authentication, and secure OTP verification via transactional email services.</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm">2. Payment & Banking Data</h3>
+                  <p>BizNavigator <strong>never stores</strong> your Credit/Debit Card numbers, UPI PIN, or Netbanking passwords. All monetary transactions are processed through end-to-end encrypted gateways governed by the Reserve Bank of India (RBI).</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm">3. Zero Third-Party Selling</h3>
+                  <p>We do not rent, monetize, or sell your personal credentials or business ideas to third-party advertising brokers. Your database records are strictly isolated in encrypted cloud clusters.</p>
+                </div>
+              )}
+
+              {legalModalType === "refund" && (
+                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <IndianRupee className="w-5 h-5 text-sky-400" />
+                    Refund & Cancellation Policy
+                  </h2>
+                  <p className="text-slate-400">Last updated: October 2026</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm">1. Digital SaaS Deliverables</h3>
+                  <p>BizNavigator provides on-demand, instant digital services (AI-generated business plans, financial projections, and database access). Because compute resources and AI generations are provisioned immediately upon purchase, <strong>Day Pass (₹49), Monthly Pro (₹249), and Quarterly Pro (₹599) plans are strictly non-refundable</strong> once activated.</p>
+
+                  <h3 className="font-bold text-slate-100 text-sm">2. Accidental Duplicate Payments</h3>
+                  <p>If a technical glitch causes duplicate deductions for the same plan, users can email our support team with both Razorpay Payment IDs within 48 hours. Upon verification, the duplicate charge will be credited back to the original payment source within 5 to 7 working days.</p>
+                </div>
+              )}
+
+              {legalModalType === "contact" && (
+                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                    <Mail className="w-5 h-5 text-amber-400" />
+                    Customer Care & Grievance Redressal
+                  </h2>
+                  <p>For transaction verification queries, operational issues, or partnership proposals, reach out to our team:</p>
+
+                  <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2 font-mono text-[11px]">
+                    <p><strong className="text-slate-400">Entity:</strong> BizNavigator</p>
+                    <p><strong className="text-slate-400">Support Email:</strong> admin@biznavigator.in</p>
+                    <p><strong className="text-slate-400">Operating Base:</strong> Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
+                    <p><strong className="text-slate-400">Turnaround Time:</strong> Monday to Saturday (10:00 AM – 7:00 PM IST). Inquiries are resolved within 24–48 hours.</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-4 border-t border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setLegalModalType(null)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1537,7 +1627,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
-            {/* ADMIN WORKS HEADER BUTTON */}
             {isAdminUser ? (
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
@@ -1590,7 +1679,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         </div>
 
-        {/* Global Navigation Tabs (Includes working Admin Works Tab for admin) */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto text-sm border-t border-slate-800/80 pt-1">
           {[
             { id: "idea-finder", label: "AI Idea Matcher (5 Ideas)", icon: Lightbulb },
@@ -1655,7 +1743,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB: ADMIN WORKS (FULL WORKSPACE DASHBOARD) */}
+        {/* TAB: ADMIN WORKS */}
         {activeTab === "admin-works" && isAdminUser && (
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
@@ -1668,7 +1756,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </h1>
             </div>
 
-            {/* Stats Row */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
                 <div>
@@ -1701,7 +1788,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* Submissions Section */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
               <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                 <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2">
@@ -1753,7 +1839,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* User Directory Management */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
               <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2 border-b border-slate-800 pb-3">
                 <Users className="w-5 h-5 text-indigo-400" />
@@ -1794,7 +1879,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
@@ -1896,7 +1980,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </form>
               </div>
 
-              {/* 5 Recommended Ideas */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
@@ -2159,7 +2242,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             </div>
 
-            {/* Daily Cashflow & Udhaar Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
@@ -2267,6 +2349,25 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
       </main>
+
+      {/* FOOTER WITH LEGAL LINKS */}
+      <footer className="border-t border-slate-800 bg-slate-900/60 py-6 text-xs text-slate-400 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="text-center sm:text-left">
+            <p className="font-bold text-slate-200">BizNavigator 🇮🇳</p>
+            <p className="text-[11px] text-slate-500">AI-Powered Strategic Business Roadmap & Evaluation Platform</p>
+          </div>
+          <div className="flex flex-wrap justify-center gap-4 text-xs font-medium">
+            <button type="button" onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 transition cursor-pointer">Terms of Service</button>
+            <span>•</span>
+            <button type="button" onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 transition cursor-pointer">Privacy Policy</button>
+            <span>•</span>
+            <button type="button" onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 transition cursor-pointer">Refund & Cancellation</button>
+            <span>•</span>
+            <button type="button" onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 transition cursor-pointer">Contact & Support</button>
+          </div>
+        </div>
+      </footer>
 
       {/* 24/7 DOCKED FLOATING BIZMENTOR CHAT */}
       <div className="fixed bottom-5 right-5 z-50">
@@ -2470,9 +2571,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ============================================================== */}
-      {/* ADMINISTRATIVE WORKS MODAL                                      */}
-      {/* ============================================================== */}
+      {/* ADMINISTRATIVE WORKS MODAL */}
       {showAdminConsoleModal && isAdminUser && (
         <div className="fixed inset-0 bg-slate-950/85 z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-2xl w-full space-y-4 text-xs">
@@ -2549,6 +2648,106 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* LEGAL POLICIES MODAL (POPUP) */}
+      {legalModalType && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setLegalModalType(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {legalModalType === "terms" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-amber-400" />
+                  Terms of Service & AI Disclaimer
+                </h2>
+                <p className="text-slate-400">Last updated: October 2026</p>
+
+                <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
+                  <strong>⚠️ Mandatory Financial & Legal Disclaimer:</strong> BizNavigator provides AI-driven business feasibility estimations, financial calculators, and market insights for <strong>educational and informational purposes only</strong>. We do not provide statutory chartered accountancy, legal advisory, or guaranteed profit assurances. Actual business outcomes vary by execution, regional licensing, and market volatility.
+                </div>
+
+                <h3 className="font-bold text-slate-100 text-sm mt-3">1. Account Security & Fair Usage</h3>
+                <p>Users are responsible for safeguarding their login credentials. Any automated abuse, excessive scraping, or sharing of Pro memberships across unauthorized third parties will lead to permanent account suspension without notice.</p>
+
+                <h3 className="font-bold text-slate-100 text-sm mt-3">2. Intellectual Property</h3>
+                <p>The proprietary algorithms, branding, custom UI, and system design of BizNavigator remain the exclusive property of BizNavigator Headquarters.</p>
+
+                <h3 className="font-bold text-slate-100 text-sm mt-3">3. Governing Law</h3>
+                <p>These terms are governed by the laws of India. Any legal dispute or claims arising out of services shall be subject to the exclusive jurisdiction of the competent courts in New Delhi, India.</p>
+              </div>
+            )}
+
+            {legalModalType === "privacy" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  Privacy Policy (DPDP Act 2023 Compliant)
+                </h2>
+                <p className="text-slate-400">Last updated: October 2026</p>
+
+                <h3 className="font-bold text-slate-100 text-sm">1. Data We Collect</h3>
+                <p>We collect your Name, Email address, Business name, and hashed passwords solely for profile management, authentication, and secure OTP verification via transactional email services.</p>
+
+                <h3 className="font-bold text-slate-100 text-sm">2. Payment & Banking Data</h3>
+                <p>BizNavigator <strong>never stores</strong> your Credit/Debit Card numbers, UPI PIN, or Netbanking passwords. All monetary transactions are processed through end-to-end encrypted gateways governed by the Reserve Bank of India (RBI).</p>
+
+                <h3 className="font-bold text-slate-100 text-sm">3. Zero Third-Party Selling</h3>
+                <p>We do not rent, monetize, or sell your personal credentials or business ideas to third-party advertising brokers. Your database records are strictly isolated in encrypted cloud clusters.</p>
+              </div>
+            )}
+
+            {legalModalType === "refund" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <IndianRupee className="w-5 h-5 text-sky-400" />
+                  Refund & Cancellation Policy
+                </h2>
+                <p className="text-slate-400">Last updated: October 2026</p>
+
+                <h3 className="font-bold text-slate-100 text-sm">1. Digital SaaS Deliverables</h3>
+                <p>BizNavigator provides on-demand, instant digital services (AI-generated business plans, financial projections, and database access). Because compute resources and AI generations are provisioned immediately upon purchase, <strong>Day Pass (₹49), Monthly Pro (₹249), and Quarterly Pro (₹599) plans are strictly non-refundable</strong> once activated.</p>
+
+                <h3 className="font-bold text-slate-100 text-sm">2. Accidental Duplicate Payments</h3>
+                <p>If a technical glitch causes duplicate deductions for the same plan, users can email our support team with both Razorpay Payment IDs within 48 hours. Upon verification, the duplicate charge will be credited back to the original payment source within 5 to 7 working days.</p>
+              </div>
+            )}
+
+            {legalModalType === "contact" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-amber-400" />
+                  Customer Care & Grievance Redressal
+                </h2>
+                <p>For transaction verification queries, operational issues, or partnership proposals, reach out to our team:</p>
+
+                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2 font-mono text-[11px]">
+                  <p><strong className="text-slate-400">Entity:</strong> BizNavigator</p>
+                  <p><strong className="text-slate-400">Support Email:</strong> admin@biznavigator.in</p>
+                  <p><strong className="text-slate-400">Operating Base:</strong> Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
+                  <p><strong className="text-slate-400">Turnaround Time:</strong> Monday to Saturday (10:00 AM – 7:00 PM IST). Inquiries are resolved within 24–48 hours.</p>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLegalModalType(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
