@@ -42,15 +42,21 @@ import {
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & OFFICIAL CREDENTIALS ---
-const API_BASE_URL = "http://localhost:5000/api";
+const API_BASE_URL = typeof window !== "undefined" && window.location.hostname === "localhost"
+  ? "http://localhost:5000/api"
+  : "/api";
+
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
 const ADMIN_SECRET_KEY = "admin123";
 
-// HARDCODED DEFAULT GEMINI API KEY FOR ALL AI EVALUATIONS
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+// READ SECURELY FROM VERCEL ENVIRONMENT VARIABLES (NO HARDCODED KEY)
+const VERCEL_ENV_GEMINI_KEY =
+  (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
+  (typeof process !== "undefined" && (process.env?.REACT_APP_GEMINI_API_KEY || process.env?.NEXT_PUBLIC_GEMINI_API_KEY || process.env?.GEMINI_API_KEY)) ||
+  "";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -108,9 +114,9 @@ export default function BizNavigatorApp() {
   // App Navigation & Tools
   const [activeTab, setActiveTab] = useState("idea-finder");
   
-  // Active API Key (Defaulted to your provided key)
+  // Custom API Key Override (if user inputs one in settings, otherwise uses Vercel Env)
   const [apiKey, setApiKey] = useState(
-    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || DEFAULT_GEMINI_API_KEY
+    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || VERCEL_ENV_GEMINI_KEY
   );
   const [showKeyModal, setShowKeyModal] = useState(false);
   const [proDailyCount, setProDailyCount] = useState(
@@ -392,7 +398,7 @@ export default function BizNavigatorApp() {
 
   // ==========================================
   // CENTRALIZED GEMINI AI EVALUATION ENGINE
-  // (Uses your provided API key for all evaluations)
+  // (Uses Vercel Environment Variable or Serverless Proxy)
   // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
@@ -405,50 +411,76 @@ export default function BizNavigatorApp() {
       throw new Error("LIMIT_REACHED");
     }
 
-    // Active key: configured in state or fallback to your official key
-    const activeKey = (apiKey || DEFAULT_GEMINI_API_KEY).trim();
-
+    // Attempt 1: Route through backend / Vercel Serverless Function (Server holds key safely)
     try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": activeKey
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }]
-          })
-        }
-      );
+      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          systemInstruction,
+          userEmail: currentUser.emailOrPhone
+        })
+      });
 
-      const data = await response.json();
-      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-      if (textResponse) {
-        // Track usage in MongoDB
-        if (!isAdmin && !isUserPro) {
-          fetch(`${API_BASE_URL}/users/usage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-          })
-            .then((r) => r.json())
-            .then((d) => {
-              if (d.evaluationsCount) {
-                setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
-              }
-            })
-            .catch(() => {});
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        if (serverData.text) {
+          if (!isAdmin && !isUserPro) {
+            setCurrentUser((prev) => ({ ...prev, evaluationsCount: (prev.evaluationsCount || 0) + 1 }));
+          }
+          return serverData.text;
         }
-        return textResponse;
       }
-    } catch (err) {
-      console.warn("Live Gemini API call failed, falling back to simulated intelligence:", err);
+    } catch (e) {
+      // Backend proxy unavailable, proceed to client-side env variable
     }
 
-    // Smart fallback if network or endpoint fails
+    // Attempt 2: Direct call using Vercel injected key
+    const activeKey = (apiKey || VERCEL_ENV_GEMINI_KEY).trim();
+
+    if (activeKey) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": activeKey
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }]
+            })
+          }
+        );
+
+        const data = await response.json();
+        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (textResponse) {
+          if (!isAdmin && !isUserPro) {
+            fetch(`${API_BASE_URL}/users/usage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+            })
+              .then((r) => r.json())
+              .then((d) => {
+                if (d.evaluationsCount) {
+                  setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
+                }
+              })
+              .catch(() => {});
+          }
+          return textResponse;
+        }
+      } catch (err) {
+        console.warn("Direct Gemini call failed:", err);
+      }
+    }
+
+    // Attempt 3: Intelligent fallback simulation
     await new Promise((r) => setTimeout(r, 900));
 
     if (!isAdmin && !isUserPro) {
@@ -941,6 +973,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </button>
             </div>
 
+            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -948,6 +981,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
+            {/* Success Notification */}
             {authSuccessNotice && (
               <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
                 <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
@@ -1247,6 +1281,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     );
   }
 
+  // ==============================================================
+  // MAIN AUTHENTICATED APPLICATION SHELL
+  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       {/* Top Header */}
