@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -47,24 +48,30 @@ import {
   CheckCircle,
   Gauge,
   Eye,
-  EyeOff
+  EyeOff,
+  ChevronRight,
+  AlertCircle,
+  Truck,
+  Store,
+  Percent
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
-const API_BASE_URL = typeof window !== "undefined" && window.location.hostname === "localhost"
-  ? "http://localhost:5000/api"
-  : "/api";
+const API_BASE_URL =
+  typeof window !== "undefined" && window.location.hostname === "localhost"
+    ? "http://localhost:5000/api"
+    : "/api";
 
 const FREE_USAGE_LIMIT = 5;
-const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
-const ADMIN_SECRET_KEY = "admin123";
 
-// Read from Vercel environment variable
 const VERCEL_ENV_GEMINI_KEY =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
-  (typeof process !== "undefined" && (process.env?.REACT_APP_GEMINI_API_KEY || process.env?.NEXT_PUBLIC_GEMINI_API_KEY || process.env?.GEMINI_API_KEY)) ||
+  (typeof process !== "undefined" &&
+    (process.env?.REACT_APP_GEMINI_API_KEY ||
+      process.env?.NEXT_PUBLIC_GEMINI_API_KEY ||
+      process.env?.GEMINI_API_KEY)) ||
   "";
 
 const PAYMENT_LINKS = {
@@ -72,6 +79,120 @@ const PAYMENT_LINKS = {
   monthlyPro: "https://rzp.io/rzp/IYMoJDwv",   // ₹249
   quarterlyPro: "https://rzp.io/rzp/wkdIZLD"   // ₹599
 };
+
+// --- INITIAL 10-DAY SPRINT DATA ---
+const INITIAL_10_DAY_SPRINT = [
+  {
+    id: "day_1",
+    dayNumber: 1,
+    dayTitle: "Day 1: Ground Demand Validation & Customer Survey",
+    phase: "Phase 1: Validation",
+    task: "Conduct 20 face-to-face target consumer interviews in the chosen micro-market. Ask what they currently pay, their biggest frustration, and willingness to switch.",
+    timeEst: "3.5 hrs",
+    budgetEst: "₹300 (Beverages/Clipboards)",
+    priority: "Critical",
+    completed: false
+  },
+  {
+    id: "day_2",
+    dayNumber: 2,
+    dayTitle: "Day 2: Competitor Pricing & Margin Audit",
+    phase: "Phase 1: Validation",
+    task: "Mystery-shop 3 direct competitors in a 2-km radius. Catalog exact pricing, packaging quality, payment methods accepted, and estimate daily footfall.",
+    timeEst: "3.0 hrs",
+    budgetEst: "₹500 (Sampling)",
+    priority: "High",
+    completed: false
+  },
+  {
+    id: "day_3",
+    dayNumber: 3,
+    dayTitle: "Day 3: Wholesale Vendor Sourcing & Raw Material Samples",
+    phase: "Phase 2: Supply Chain",
+    task: "Visit local wholesale APMC Mandi or connect with 3 verified IndiaMART / Udaan suppliers. Collect raw material sample lots and negotiate minimum order quantities (MOQs).",
+    timeEst: "4.5 hrs",
+    budgetEst: "₹1,500 (Sample batches)",
+    priority: "Critical",
+    completed: false
+  },
+  {
+    id: "day_4",
+    dayNumber: 4,
+    dayTitle: "Day 4: Location / Space Finalization & Lease Negotiation",
+    phase: "Phase 2: Setup",
+    task: "Inspect 2 prospective commercial shops or kiosk spots. Negotiate standard 11-month lease with 1-month deposit, a 15-day rent-free fit-out window, and 5% cap on annual escalation.",
+    timeEst: "4.0 hrs",
+    budgetEst: "₹0 (Initial token withheld)",
+    priority: "Critical",
+    completed: false
+  },
+  {
+    id: "day_5",
+    dayNumber: 5,
+    dayTitle: "Day 5: Legal Registrations (MSME Udyam, GST & Permits)",
+    phase: "Phase 3: Compliance",
+    task: "Submit zero-cost MSME Udyam online registration. File GSTIN if turnover applies, and apply for local Municipal Trade License or FSSAI Basic registration (for food businesses).",
+    timeEst: "2.5 hrs",
+    budgetEst: "₹100 - ₹1,000 (Govt statutory fee)",
+    priority: "Critical",
+    completed: false
+  },
+  {
+    id: "day_6",
+    dayNumber: 6,
+    dayTitle: "Day 6: Branding, Signage, Packaging & Soundbox Setup",
+    phase: "Phase 3: Infrastructure",
+    task: "Print branded QR standee, order Paytm/PhonePe UPI Soundbox, print vinyl flex banner, and procure 100 eco-friendly packaging boxes or carry-bags with sticker labels.",
+    timeEst: "3.5 hrs",
+    budgetEst: "₹2,500 - ₹3,500",
+    priority: "Medium",
+    completed: false
+  },
+  {
+    id: "day_7",
+    dayNumber: 7,
+    dayTitle: "Day 7: Initial Inventory Stocking & Equipment Dry Run",
+    phase: "Phase 4: Operations",
+    task: "Receive initial inventory stock from Day 3 suppliers. Conduct a complete 2-hour simulated operational dry-run (preparation, billing, packaging, and cash reconciliation).",
+    timeEst: "4.0 hrs",
+    budgetEst: "Allocated in initial capex",
+    priority: "High",
+    completed: false
+  },
+  {
+    id: "day_8",
+    dayNumber: 8,
+    dayTitle: "Day 8: Soft Launch with Friends, Family & Beta Testers",
+    phase: "Phase 4: Testing",
+    task: "Invite 15-20 friendly customers for a controlled 3-hour trial window. Collect unvarnished feedback on speed of delivery, pricing, and taste/service experience.",
+    timeEst: "3.5 hrs",
+    budgetEst: "₹1,000 (Discounts/Tasting)",
+    priority: "High",
+    completed: false
+  },
+  {
+    id: "day_9",
+    dayNumber: 9,
+    dayTitle: "Day 9: Hyperlocal Marketing & WhatsApp Community Launch",
+    phase: "Phase 5: Go-to-Market",
+    task: "Distribute 500 targeted pamphlets in nearby residential apartments/societies. Set up a WhatsApp Business catalog with broadcast list and offer Day-1 inaugural promo.",
+    timeEst: "3.0 hrs",
+    budgetEst: "₹1,200 (Pamphlet print & delivery)",
+    priority: "Medium",
+    completed: false
+  },
+  {
+    id: "day_10",
+    dayNumber: 10,
+    dayTitle: "Day 10: Official Commercial Launch & Day-1 Cashflow Audit",
+    phase: "Phase 5: Commercial Scale",
+    task: "Doors open for commercial operations at 8:30 AM! Track total footfall, conversions, cash/UPI split, and reconcile cashbox at 9:00 PM against the Daily Ledger.",
+    timeEst: "8.0 hrs",
+    budgetEst: "₹500 (Opening rituals/float cash)",
+    priority: "Critical",
+    completed: false
+  }
+];
 
 // --- TOP-LEVEL HELPER FUNCTIONS ---
 function extractJsonFromText(rawText) {
@@ -91,12 +212,6 @@ function extractJsonFromText(rawText) {
   return null;
 }
 
-function formatCountdown(secs) {
-  const m = Math.floor(secs / 60);
-  const s = secs % 60;
-  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-}
-
 function safeGetStorage(key, fallback) {
   try {
     const val = localStorage.getItem(key);
@@ -107,15 +222,13 @@ function safeGetStorage(key, fallback) {
 }
 
 export default function BizNavigatorApp() {
-  // Clear any legacy client-side Pro leakage on boot
   useEffect(() => {
     localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
   }, []);
 
   // 1. AUTHENTICATION & SESSION
   const [currentUser, setCurrentUser] = useState(() => safeGetStorage(`${STORAGE_PREFIX}user`, null));
-
-  const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'forgot', 'admin'
+  const [authMode, setAuthMode] = useState("login");
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authFullName, setAuthFullName] = useState("");
@@ -124,40 +237,42 @@ export default function BizNavigatorApp() {
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Real Email OTP States for Forgot Password
+  // OTP States
   const [otpStep, setOtpStep] = useState(1);
   const [enteredOtp, setEnteredOtp] = useState("");
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
-  const [resendCooldown, setResendCooldown] = useState(0);
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
   const [showPasswordToggle, setShowPasswordToggle] = useState(false);
 
-  // Real Email OTP States for Signup
   const [signupStep, setSignupStep] = useState(1);
   const [signupEnteredOtp, setSignupEnteredOtp] = useState("");
   const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
-  const [signupResendCooldown, setSignupResendCooldown] = useState(0);
   const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
-  // Subscriptions & Users synced from MongoDB
+  // Subscriptions & Users
   const [submittedTxns, setSubmittedTxns] = useState(() => safeGetStorage(`${STORAGE_PREFIX}all_txns`, []));
   const [registeredUsersList, setRegisteredUsersList] = useState(() => safeGetStorage(`${STORAGE_PREFIX}registered_users`, []));
 
-  // Modals & Panels
+  // Modals
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
-  const [adminConsoleTab, setAdminConsoleTab] = useState("txns"); // 'txns', 'users'
+  const [adminConsoleTab, setAdminConsoleTab] = useState("txns");
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
-
   const [inputPaymentId, setInputPaymentId] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
-
-  // Legal Modal State ('terms', 'privacy', 'refund', 'contact')
   const [legalModalType, setLegalModalType] = useState(null);
+
+  // Deep Analysis Modal
+  const [deepAnalysisIdea, setDeepAnalysisIdea] = useState(null);
+  const [deepAnalysisData, setDeepAnalysisData] = useState(null);
+  const [isLoadingDeepAnalysis, setIsLoadingDeepAnalysis] = useState(false);
+
+  // Active Venture State (Pipeline across tabs)
+  const [selectedVenture, setSelectedVenture] = useState(() => safeGetStorage(`${STORAGE_PREFIX}selected_venture`, null));
 
   // Navigation
   const [activeTab, setActiveTab] = useState(() => {
@@ -167,12 +282,8 @@ export default function BizNavigatorApp() {
   });
 
   const [lastAiError, setLastAiError] = useState("");
-  const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
 
-  // Admin Check
   const isAdminUser = Boolean(currentUser?.role?.toLowerCase() === "admin");
-
-  // Strict Pro Check
   const isUserPro = Boolean(
     currentUser && (
       isAdminUser ||
@@ -186,17 +297,6 @@ export default function BizNavigatorApp() {
   );
 
   const evaluationsCount = currentUser?.evaluationsCount || 0;
-
-  const userPendingTxn = currentUser
-    ? submittedTxns.find(
-        (t) =>
-          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
-          t.status === "pending"
-      )
-    : null;
-
-  // Active Venture State (Pipeline across tabs)
-  const [selectedVenture, setSelectedVenture] = useState(() => safeGetStorage(`${STORAGE_PREFIX}selected_venture`, null));
 
   // Sync state to local storage
   useEffect(() => {
@@ -213,7 +313,7 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // Sync DB records from backend API
+  // Sync DB records
   const fetchDbData = async (userParam = currentUser) => {
     try {
       const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
@@ -245,7 +345,7 @@ export default function BizNavigatorApp() {
     if (currentUser) fetchDbData(currentUser);
   }, [currentUser]);
 
-  // Countdown Timers
+  // Timers
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -253,25 +353,13 @@ export default function BizNavigatorApp() {
   }, [otpSecondsLeft]);
 
   useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const interval = setInterval(() => setResendCooldown((p) => Math.max(0, p - 1)), 1000);
-    return () => clearInterval(interval);
-  }, [resendCooldown]);
-
-  useEffect(() => {
     if (signupOtpSecondsLeft <= 0) return;
     const interval = setInterval(() => setSignupOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(interval);
   }, [signupOtpSecondsLeft]);
 
-  useEffect(() => {
-    if (signupResendCooldown <= 0) return;
-    const interval = setInterval(() => setSignupResendCooldown((p) => Math.max(0, p - 1)), 1000);
-    return () => clearInterval(interval);
-  }, [signupResendCooldown]);
-
   // ==========================================
-  // BACKEND-BASED AUTHENTICATION HANDLERS
+  // AUTH HANDLERS
   // ==========================================
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -344,21 +432,12 @@ export default function BizNavigatorApp() {
         })
       });
 
-      if (!res.ok) {
-        res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: authEmailOrPhone.trim() })
-        });
-      }
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP.");
 
       setSignupStep(2);
       setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
-      setSignupResendCooldown(30);
-      setAuthSuccessNotice(`A real verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
+      setAuthSuccessNotice(`Verification OTP has been sent to ${authEmailOrPhone}.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -400,7 +479,6 @@ export default function BizNavigatorApp() {
       setSignupEnteredOtp("");
       setSignupStep(1);
       setActiveTab("idea-finder");
-      alert(`Welcome to BizNavigator, ${data.user.name}! Your account is ready.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -412,7 +490,6 @@ export default function BizNavigatorApp() {
     e.preventDefault();
     setAuthError("");
     setAuthSuccessNotice("");
-
     setResetNewPassword("");
     setResetConfirmPassword("");
     setEnteredOtp("");
@@ -430,8 +507,7 @@ export default function BizNavigatorApp() {
 
       setOtpStep(2);
       setOtpSecondsLeft(data.expiresInSeconds || 300);
-      setResendCooldown(30);
-      setAuthSuccessNotice(`A real verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
+      setAuthSuccessNotice(`Verification OTP has been sent to ${authEmailOrPhone}.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -450,36 +526,24 @@ export default function BizNavigatorApp() {
     const cleanConfirm = resetConfirmPassword.trim();
 
     if (!cleanOtp || cleanOtp.length !== 6) {
-      setAuthError("Please enter the complete 6-digit OTP code received in your email.");
+      setAuthError("Please enter the complete 6-digit OTP code.");
       return;
     }
-
-    if (!cleanNew) {
-      setAuthError("Please enter your new password.");
-      return;
-    }
-
     if (cleanNew.length < 4) {
       setAuthError("Password must be at least 4 characters long.");
       return;
     }
-
     if (cleanNew !== cleanConfirm) {
-      setAuthError("New Password and Confirm Password do not match. Please verify both fields.");
+      setAuthError("Passwords do not match.");
       return;
     }
 
     setIsAuthLoading(true);
-
     try {
       const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: cleanEmail,
-          otp: cleanOtp,
-          newPassword: cleanNew
-        })
+        body: JSON.stringify({ email: cleanEmail, otp: cleanOtp, newPassword: cleanNew })
       });
 
       const data = await res.json();
@@ -491,7 +555,7 @@ export default function BizNavigatorApp() {
       setResetConfirmPassword("");
       setAuthPassword("");
       setAuthMode("login");
-      setAuthSuccessNotice("Password verified and updated in MongoDB! Please log in with your new password.");
+      setAuthSuccessNotice("Password updated successfully! Please log in with your new password.");
     } catch (err) {
       setAuthError(err.message || "Failed to reset password.");
     } finally {
@@ -586,11 +650,13 @@ export default function BizNavigatorApp() {
     return null;
   };
 
-  // --- TAB 1: 6-INPUT DYNAMIC AI IDEA MATCHER ---
+  // ==========================================
+  // TAB 1: 6-INPUT AI IDEA MATCHER + DEEP ANALYSIS
+  // ==========================================
   const [finderBudget, setFinderBudget] = useState("150000");
-  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Corridor)");
-  const [finderSkills, setFinderSkills] = useState("Direct Sales, Cooking, Digital Marketing");
-  const [finderInterests, setFinderInterests] = useState("Beverages, Organic Food, Packaging");
+  const [finderLocation, setFinderLocation] = useState("Bengaluru (Koramangala / HSR Corridor)");
+  const [finderSkills, setFinderSkills] = useState("Direct Sales, Food Preparation, Digital Marketing");
+  const [finderInterests, setFinderInterests] = useState("Beverages, Organic Food, Quick-Service Snacks");
   const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
   const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
@@ -602,15 +668,15 @@ export default function BizNavigatorApp() {
     setLastAiError("");
 
     const prompt = `Act as an elite Indian Startup & SME Strategist.
-Generate 5 DISTINCT, CREATIVE, VIABLE Indian business ideas tailored specifically to these 6 USER INPUTS:
+Generate 5 DISTINCT, CREATIVE, HIGHLY VIABLE Indian business ideas tailored specifically to these 6 inputs:
 1. Budget: ₹${finderBudget}
-2. Location: ${finderLocation}
+2. Location / Target City: ${finderLocation}
 3. Skills: ${finderSkills}
 4. Interests: ${finderInterests}
 5. Working Time: ${finderTime}
 6. Risk Tolerance: ${finderRisk}
 
-Evaluate all 6 inputs together.
+Evaluate all 6 inputs together for Indian commercial reality.
 Return ONLY valid JSON matching this schema:
 {
   "ideas": [
@@ -622,7 +688,7 @@ Return ONLY valid JSON matching this schema:
       "matchScore": 95,
       "whyFit": "Direct explanation of why this matches their ${finderSkills} skills, ₹${finderBudget} budget, ${finderTime} schedule, and ${finderRisk} appetite in ${finderLocation}.",
       "estimatedCapex": "₹${Math.round(parseInt(finderBudget) * 0.65).toLocaleString('en-IN')}",
-      "monthlyPotential": "₹40,000 - ₹80,000 net profit",
+      "monthlyPotential": "₹40,000 - ₹85,000 net profit",
       "targetAudience": "Target customer segment in ${finderLocation}",
       "firstStep": "Tangible Day 1 launch action in India"
     }
@@ -637,70 +703,70 @@ Return ONLY valid JSON matching this schema:
       localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsedData.ideas));
     } else {
       const numBudget = parseInt(finderBudget) || 150000;
-      const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
+      const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru";
       const cleanSkill = finderSkills.split(",")[0].trim() || "Operations";
-      const cleanInterest = finderInterests.split(",")[0].trim() || "Retail";
+      const cleanInterest = finderInterests.split(",")[0].trim() || "Snacks & Beverages";
 
       const dynamicSynthesis = [
         {
           id: `dyn_1_${Date.now()}`,
-          title: `Specialty ${cleanInterest} Counter & Retail Hub`,
-          tagline: `High-volume localized retail concept serving ${cleanInterest} in ${cleanLoc}.`,
-          category: "Retail Commercial",
+          title: `Artisanal ${cleanInterest} Express Kiosk`,
+          tagline: `High-frequency daily refreshment counter optimized for high-traffic corridors in ${cleanLoc}.`,
+          category: "Retail F&B",
           matchScore: 96,
-          whyFit: `Directly leverages your passion for ${cleanInterest} and ${cleanSkill} skills. Fits within your ₹${numBudget.toLocaleString("en-IN")} budget under a ${finderRisk} profile.`,
+          whyFit: `Capitalizes directly on your skills in ${cleanSkill} and passion for ${cleanInterest}. Perfectly calibrated to a ₹${numBudget.toLocaleString("en-IN")} capex with quick 30-day payback.`,
           estimatedCapex: `₹${Math.round(numBudget * 0.65).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹45,000 - ₹85,000 net profit",
-          targetAudience: `Walk-in commuters and neighborhood consumers in ${cleanLoc}`,
-          firstStep: `Survey 3 commercial zones in ${cleanLoc} for footfall during your ${finderTime} window.`
+          monthlyPotential: "₹45,000 - ₹95,000 net profit",
+          targetAudience: `Young professionals and daily commuters in ${cleanLoc}`,
+          firstStep: `Conduct Day-1 pedestrian count at two transit-adjacent spots in ${cleanLoc}.`
         },
         {
           id: `dyn_2_${Date.now()}`,
-          title: `B2B ${cleanInterest} Sourcing & Contract Distribution`,
-          tagline: `Supplying verified ${cleanInterest} products and consumables to regional merchants.`,
+          title: `B2B ${cleanInterest} Supply & Contract Distribution`,
+          tagline: `Wholesale supply of consumables and packaged batches to local cafes and eateries in ${cleanLoc}.`,
           category: "B2B Supply Chain",
-          matchScore: 92,
-          whyFit: `Capitalizes on your ${cleanSkill} strength. Can be operated on a ${finderTime} schedule with recurring monthly billing retainers.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.8).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹35,000 - ₹90,000 recurring retainers",
-          targetAudience: `Commercial retailers, local traders, and independent firms in ${cleanLoc}`,
-          firstStep: `Obtain wholesale catalog price sheets on Indiamart for ${cleanInterest}.`
+          matchScore: 91,
+          whyFit: `Asset-light trade utilizing your ${cleanSkill} network. Recovers working capital weekly without heavy retail front investment.`,
+          estimatedCapex: `₹${Math.round(numBudget * 0.75).toLocaleString("en-IN")}`,
+          monthlyPotential: "₹40,000 - ₹90,000 retainers",
+          targetAudience: `Independent cafes, boutique grocers, and commercial canteens`,
+          firstStep: `Obtain wholesale rates on IndiaMART and APMC wholesale hub for ${cleanInterest}.`
         },
         {
           id: `dyn_3_${Date.now()}`,
-          title: `Hyperlocal WhatsApp & D2C ${cleanInterest} Commerce`,
-          tagline: `Curated direct-to-consumer batches delivered through neighborhood communities.`,
-          category: "D2C Commerce",
+          title: `Direct-to-Society (D2C) ${cleanInterest} Subscription`,
+          tagline: `Curated weekly fresh supply delivered directly to gated society communities via WhatsApp.`,
+          category: "Hyperlocal D2C",
           matchScore: 89,
-          whyFit: `Zero commercial rent requirement; ideal for ${finderTime} commitment with low capital risk.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.35).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹25,000 - ₹55,000 part-time",
-          targetAudience: `Gated society residents, festive shoppers, and families in ${cleanLoc}`,
-          firstStep: `Build a 10-item WhatsApp Business catalog highlighting curated ${cleanInterest}.`
+          whyFit: `Zero shop rent overhead. Fits your ${finderTime} schedule with prepaid UPI community subscriptions.`,
+          estimatedCapex: `₹${Math.round(numBudget * 0.4).toLocaleString("en-IN")}`,
+          monthlyPotential: "₹30,000 - ₹65,000 net profit",
+          targetAudience: `Apartment welfare association families in ${cleanLoc}`,
+          firstStep: `Create a 5-item curated menu brochure and test with 10 residential society secretaries.`
         },
         {
           id: `dyn_4_${Date.now()}`,
-          title: `${cleanSkill}-Driven Local Growth & Consulting Studio`,
-          tagline: `Helping small business owners optimize their ${cleanSkill} and customer acquisition.`,
+          title: `${cleanSkill}-Powered SME Marketing & Operations Agency`,
+          tagline: `Helping small high-street retailers in ${cleanLoc} digitize orders, Google Maps, and soundboxes.`,
           category: "Asset-Light Services",
           matchScore: 87,
-          whyFit: `Asset-light model requiring negligible hardware; perfect for a ${finderRisk} tolerance with immediate cash profitability.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.2).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹30,000 - ₹70,000 monthly retainers",
-          targetAudience: `Retail shop owners, professionals, and clinics in ${cleanLoc}`,
-          firstStep: `Audit 10 local businesses in ${cleanLoc} to identify service gaps.`
+          whyFit: `Near-zero inventory requirement. Generates immediate upfront cashflow matching a ${finderRisk} profile.`,
+          estimatedCapex: `₹${Math.round(numBudget * 0.25).toLocaleString("en-IN")}`,
+          monthlyPotential: "₹35,000 - ₹80,000 monthly retainers",
+          targetAudience: `Local retail shops, doctors, coaching centers, and restaurants`,
+          firstStep: `Audit Google Business profiles of 20 local merchants in ${cleanLoc}.`
         },
         {
           id: `dyn_5_${Date.now()}`,
-          title: `Micro-Processing & Value-Add ${cleanInterest} Unit`,
-          tagline: `Specialized small-batch manufacturing and packaging of high-demand items.`,
-          category: "Micro-Manufacturing",
+          title: `Micro-Packaging & Specialty Gift Assembly Hub`,
+          tagline: `Value-added packaging and customized corporate gifting for festive and promotional seasons.`,
+          category: "Value-Add Manufacturing",
           matchScore: 84,
-          whyFit: `High-margin production fitting your ₹${numBudget.toLocaleString("en-IN")} capital, tailored for dedicated ${finderTime} execution.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.9).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹50,000 - ₹1,00,000 net profit",
-          targetAudience: `Wholesalers and direct consumers across ${cleanLoc}`,
-          firstStep: `Inspect micro-machinery rates from regional industrial manufacturers.`
+          whyFit: `High gross margins (50%+). Can scale up during festival quarters with flexible temporary labor.`,
+          estimatedCapex: `₹${Math.round(numBudget * 0.85).toLocaleString("en-IN")}`,
+          monthlyPotential: "₹50,000 - ₹1,20,000 net profit",
+          targetAudience: `Tech firms, event managers, and wedding planners across ${cleanLoc}`,
+          firstStep: `Procure sample corrugated rigid boxes and ribbons from regional industrial packagers.`
         }
       ];
 
@@ -720,14 +786,92 @@ Return ONLY valid JSON matching this schema:
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setActiveTab("location-scout");
-    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools (Location Scout 📍, Evaluator, and 10-Day Sprint) are now configured for this business.`);
   };
 
-  // --- TAB 2: LOCATION SCOUT ---
+  // ONE-CLICK DEEP ANALYSIS
+  const handleOpenDeepAnalysis = async (idea) => {
+    setDeepAnalysisIdea(idea);
+    setIsLoadingDeepAnalysis(true);
+    setDeepAnalysisData(null);
+
+    const city = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
+    const prompt = `Perform an exhaustive deep-dive commercial feasibility breakdown for this business idea in ${city}, India:
+Idea: "${idea.title}"
+Category: ${idea.category}
+Budget: ₹${finderBudget}
+
+Return ONLY valid JSON matching this exact structure:
+{
+  "unitEconomics": {
+    "sellingPricePerUnit": "₹250",
+    "cogsRawMaterials": "₹85 (34%)",
+    "packagingAndConsumables": "₹15 (6%)",
+    "deliveryOrPlatformFee": "₹20 (8%)",
+    "paymentGatewayAndSoundboxFee": "₹5 (2%)",
+    "netMarginPerUnit": "₹125 (50% net profit)"
+  },
+  "breakEvenAnalysis": {
+    "estimatedMonthlyFixedCost": "₹32,000 (Rent ₹18k, Power/WiFi ₹4k, Staff ₹10k)",
+    "dailyUnitsRequiredToBreakEven": "9 units per day",
+    "comfortableProfitTargetVolume": "25-35 units per day (generates ₹70k+ profit/mo)",
+    "timeToBreakEven": "3 to 4 Months"
+  },
+  "customerArchetype": {
+    "persona": "Working Millennial & Tech Professional (Age 22-38)",
+    "conversionTrigger": "Speed of service (< 3 mins), cleanliness, UPI Soundbox instant checkout, and hygienic transparent packaging.",
+    "repeatPurchaseRate": "3 to 4 times per week"
+  },
+  "supplyChainSourcingGuide": {
+    "primaryPlatforms": "IndiaMART (Direct verification), APMC Local Wholesale Mandi, Udaan B2B",
+    "sourcingLocations": "Local regional industrial zones & APMC market yard in ${city}",
+    "vendorNegotiationRule": "Never commit to 100% upfront cash. Pay 30% advance on sample approval, and balance against bill of lading (B/L) on delivery."
+  }
+}`;
+
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.");
+    const parsed = extractJsonFromText(raw);
+
+    if (parsed?.unitEconomics) {
+      setDeepAnalysisData(parsed);
+    } else {
+      setDeepAnalysisData({
+        unitEconomics: {
+          sellingPricePerUnit: "₹250 average ticket size",
+          cogsRawMaterials: "₹85 (34% cost of raw goods)",
+          packagingAndConsumables: "₹18 (7% tamper-evident containers & carry-bags)",
+          deliveryOrPlatformFee: "₹18 (7% hyperlocal dispatch)",
+          paymentGatewayAndSoundboxFee: "₹4 (1.6% merchant UPI/card processing)",
+          netMarginPerUnit: "₹125 (50% net contribution margin)"
+        },
+        breakEvenAnalysis: {
+          estimatedMonthlyFixedCost: "₹35,000 (Kiosk rent ₹20k, power/permits ₹5k, helper ₹10k)",
+          dailyUnitsRequiredToBreakEven: "10 orders / day to cover all fixed costs",
+          comfortableProfitTargetVolume: "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
+          timeToBreakEven: "3.5 to 5 Months"
+        },
+        customerArchetype: {
+          persona: "Convenience-seeking daily commuter & young professional",
+          conversionTrigger: "Rapid sub-3 minute service, visible hygiene, UPI Soundbox instant ping, and fresh preparation.",
+          repeatPurchaseRate: "35% - 45% weekly repeat rate"
+        },
+        supplyChainSourcingGuide: {
+          primaryPlatforms: "Local APMC Wholesale Mandi, IndiaMART verified sellers, Udaan B2B",
+          sourcingLocations: `Central trading market and industrial packaging hubs in ${city}`,
+          vendorNegotiationRule: "Offer 50% initial cash + 50% upon delivery inspection. Request 10% volume discount on second recurring invoice."
+        }
+      });
+    }
+
+    setIsLoadingDeepAnalysis(false);
+  };
+
+  // ==========================================
+  // TAB 2: DYNAMIC CITY-SPECIFIC LOCATION SCOUT
+  // ==========================================
   const [scoutCity, setScoutCity] = useState("Bengaluru");
-  const [scoutConcept, setScoutConcept] = useState("Specialty Chai Kiosk");
+  const [scoutConcept, setScoutConcept] = useState("Specialty Chai & Quick Refreshment Kiosk");
   const [scoutBudgetRent, setScoutBudgetRent] = useState("25000");
-  const [scoutTrafficType, setScoutTrafficType] = useState("Corporate Tech Park / Startup Office Crowd");
+  const [scoutTrafficType, setScoutTrafficType] = useState("Corporate Tech Park & Office Commuters");
   const [isScoutingLocations, setIsScoutingLocations] = useState(false);
   const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout`, null));
 
@@ -735,46 +879,68 @@ Return ONLY valid JSON matching this schema:
     e.preventDefault();
     setIsScoutingLocations(true);
 
-    const prompt = `Evaluate the best micro-locations in "${scoutCity}" for "${scoutConcept}".
+    const prompt = `Act as an elite commercial real estate & footfall consultant for Indian SMEs.
+Evaluate the BEST micro-locations strictly inside "${scoutCity}" for the business: "${scoutConcept}".
 Rent Budget: Up to ₹${scoutBudgetRent}/month | Desired Footfall: ${scoutTrafficType}
-Return ONLY valid JSON:
+
+Identify 3 REAL, SPECIFIC micro-markets, streets, or commercial nodes in ${scoutCity}.
+Return ONLY valid JSON matching this schema:
 {
-  "cityOverview": "Commercial summary of ${scoutCity}.",
+  "cityOverview": "2-sentence strategic retail summary of ${scoutCity} for ${scoutConcept}.",
   "locations": [
     {
-      "name": "Exact Commercial Street / Neighborhood",
-      "zoneType": "High-Street / Tech Corridor",
-      "suitabilityScore": 94,
-      "estimatedRent": "₹110 - ₹160 / sq.ft (~₹22,000/mo)",
-      "footfallProfile": "Demographic details",
-      "competitionDensity": "Moderate",
-      "peakHours": "8:30 AM - 11:00 AM & 4:30 PM - 8:30 PM",
-      "idealFormat": "100-150 sq.ft takeaway counter",
-      "verdict": "Why this zone converts."
+      "name": "Exact Commercial Hub / Street Name in ${scoutCity}",
+      "zoneClassification": "High-Street Retail / Tech Corridor / Transit Node / Dense Residential Hub",
+      "suitabilityScore": 95,
+      "estimatedRent": "₹120 - ₹170 / sq.ft (approx ₹22,000/mo for 150 sq.ft)",
+      "footfallHours": "8:30 AM - 11:30 AM & 5:00 PM - 9:00 PM",
+      "competitionDensity": "Moderate (3 existing counters within 400m)",
+      "whyItConverts": "Detailed, specific explanation of why this street converts for ${scoutConcept}.",
+      "negotiationTip": "Exact landlord tip (e.g. ask for 1-month deposit instead of standard 6 months, request 20-day rent-free fit-out period)."
     }
   ]
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Commercial Location Evaluator. Return JSON only.");
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Commercial Location Evaluator for Indian SMEs. Return JSON only.");
     const parsed = extractJsonFromText(raw);
 
-    if (parsed?.locations) {
+    if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
       setScoutResults(parsed);
       localStorage.setItem(`${STORAGE_PREFIX}location_scout`, JSON.stringify(parsed));
     } else {
+      const rentVal = parseInt(scoutBudgetRent) || 25000;
       const fallback = {
-        cityOverview: `Strong retail consumption in ${scoutCity}. Focus on secondary high-footfall transit connectors near ${scoutTrafficType}.`,
+        cityOverview: `Commercial dynamics in ${scoutCity} favor compact footprint formats (100-200 sq.ft) with high morning and evening commuter visibility.`,
         locations: [
           {
-            name: `${scoutCity} Central Commercial Connector`,
-            zoneType: "High-Footfall Commercial Corridor",
+            name: `${scoutCity} Metro Station / Transit Connector Corridor`,
+            zoneClassification: "Transit Node & High-Street",
             suitabilityScore: 95,
-            estimatedRent: `₹120 - ₹175 / sq.ft (~₹${parseInt(scoutBudgetRent) * 0.9}/mo)`,
-            footfallProfile: `${scoutTrafficType} and evening transit crowds`,
-            competitionDensity: "Moderate",
-            peakHours: "9:00 AM - 11:30 AM & 5:00 PM - 9:00 PM",
-            idealFormat: "Front-facing compact takeaway counter with UPI soundbox",
-            verdict: "High daily traffic with repeat convenience purchases."
+            estimatedRent: `₹125 - ₹175 / sq.ft (approx ₹${Math.round(rentVal * 0.9).toLocaleString('en-IN')}/mo)`,
+            footfallHours: "8:00 AM - 11:30 AM & 5:30 PM - 9:30 PM",
+            competitionDensity: "Moderate Cluster (High daily footfall turnover)",
+            whyItConverts: `Commuters exiting transit routes have high impulse intent. ${scoutConcept} matches the need for sub-3 minute checkout on their daily route.`,
+            negotiationTip: "Offer an 11-month lease agreement. Negotiate a 20-day rent-free fit-out period for setup and signage installation."
+          },
+          {
+            name: `${scoutCity} Corporate Tech Park Main Gate Entry`,
+            zoneClassification: "Corporate / Tech Corridor",
+            suitabilityScore: 92,
+            estimatedRent: `₹140 - ₹190 / sq.ft (approx ₹${rentVal.toLocaleString('en-IN')}/mo)`,
+            footfallHours: "9:00 AM - 11:30 AM, 1:00 PM - 2:30 PM & 4:30 PM - 8:00 PM",
+            competitionDensity: "High Density (Requires distinct presentation or faster service)",
+            whyItConverts: `Continuous stream of tech professionals seeking hygienic refreshments. High UPI digital payment penetration with predictable Monday-Friday volume.`,
+            negotiationTip: "Request lower fixed rent in exchange for 3-month advance security deposit and standard 5% annual escalation clause."
+          },
+          {
+            name: `${scoutCity} High-Street Market Lane (Near Key Supermarkets)`,
+            zoneClassification: "Dense Residential High-Street",
+            suitabilityScore: 88,
+            estimatedRent: `₹110 - ₹150 / sq.ft (approx ₹${Math.round(rentVal * 0.8).toLocaleString('en-IN')}/mo)`,
+            footfallHours: "10:30 AM - 1:30 PM & 5:00 PM - 9:30 PM (Surges on weekends)",
+            competitionDensity: "Low to Moderate",
+            whyItConverts: `Captures family footfall and evening neighborhood casual strolls. Consistent 7-day revenue stream without weekend office slumps.`,
+            negotiationTip: "Ensure sub-metering for commercial electricity is clearly demarcated in the lease to avoid landlord markups."
           }
         ]
       };
@@ -784,11 +950,13 @@ Return ONLY valid JSON:
     setIsScoutingLocations(false);
   };
 
-  // --- TAB 3: BUSINESS EVALUATOR ---
+  // ==========================================
+  // TAB 3: BUSINESS EVALUATOR WITH RISK MATRIX
+  // ==========================================
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
   const [initialCapital, setInitialCapital] = useState("150000");
-  const [customerSegment, setCustomerSegment] = useState("B2C Young Working Professionals");
+  const [customerSegment, setCustomerSegment] = useState("B2C Working Professionals & Commuters");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(() => safeGetStorage(`${STORAGE_PREFIX}last_analysis`, null));
 
@@ -796,21 +964,62 @@ Return ONLY valid JSON:
     e.preventDefault();
     setIsAnalyzing(true);
 
-    const prompt = `Evaluate this business idea for India:
-Idea: ${businessIdea} | City: ${targetCity} | Budget: ₹${initialCapital} | Customer: ${customerSegment}
-Return ONLY valid JSON:
+    const prompt = `Perform a comprehensive business evaluation and Indian Risk & Threat Matrix for:
+Concept: ${businessIdea}
+City/Location: ${targetCity}
+Capital: ₹${initialCapital}
+Customer Segment: ${customerSegment}
+
+Return ONLY valid JSON matching this exact structure:
 {
-  "viabilityScore": 8.5,
-  "competitionScore": 7.0,
-  "summary": "Brief 2-sentence market verdict.",
-  "estimatedMarginPercent": "35-45%",
+  "viabilityScore": 8.7,
+  "competitionScore": 7.2,
+  "summary": "2-sentence strategic feasibility audit in ${targetCity}.",
+  "estimatedMarginPercent": "38% - 48%",
   "breakEvenMonths": "4 to 6 Months",
-  "capex": [{"item": "Machinery/Equipment", "cost": "₹60,000"}],
-  "monthlyOpex": [{"item": "Shop / Cloud Rent", "cost": "₹18,000"}],
-  "licenses": ["GST Registration", "MSME Udyam (Free)", "Trade License"]
+  "capex": [
+    {"item": "Machinery, Counters & Dispensing Units", "cost": "₹55,000"},
+    {"item": "Initial Stock & Packaging Inventory", "cost": "₹45,000"},
+    {"item": "Signage, Flex, UPI Soundbox & Store Aesthetics", "cost": "₹20,000"},
+    {"item": "Advance Rent Security Deposit", "cost": "₹30,000"}
+  ],
+  "monthlyOpex": [
+    {"item": "Shop / Kiosk Rent", "cost": "₹20,000"},
+    {"item": "Helper / Operational Staff", "cost": "₹12,000"},
+    {"item": "Electricity, WiFi & Consumables", "cost": "₹6,000"}
+  ],
+  "licenses": ["MSME Udyam Registration (Free)", "GSTIN Registration (Online)", "FSSAI Food License / Trade Permit"],
+  "riskMatrix": {
+    "udhaarRisk": {
+      "level": "Medium",
+      "threat": "Local customers or corporate staff requesting weekly credit tabs ('Khata') that deplete working capital.",
+      "mitigation": "Strict 'Zero-Khata' policy. Incentivize instant UPI checkout with 2% cash discount or automated loyalty soundbox stamps."
+    },
+    "seasonalRisk": {
+      "level": "High",
+      "threat": "Heavy monsoon rainfall dampening evening pedestrian footfall; post-festival sluggish weeks.",
+      "mitigation": "Partner with Swiggy/Zomato or run direct WhatsApp society delivery on rainy days. Buffer 45-day fixed expenses before monsoon."
+    },
+    "regulatoryRisk": {
+      "level": "Medium",
+      "threat": "Municipal trade license inspections, hawking encroachment notices, or local health inspector friction.",
+      "mitigation": "Keep printed laminated copies of MSME Udyam, FSSAI certificate, and rent agreement framed on premises at all times."
+    },
+    "supplierRisk": {
+      "level": "High",
+      "threat": "Sudden price hikes in core raw ingredients (dairy, packaging, oils) squeezing gross margins.",
+      "mitigation": "Pre-lock 30-day rates with 2 alternative wholesale suppliers on IndiaMART. Maintain a 15-day non-perishable inventory buffer."
+    },
+    "priceSensitivityRisk": {
+      "level": "Medium",
+      "threat": "Nearby street vendors undercutting prices by 20%.",
+      "mitigation": "Never compete solely on price. Highlight hygiene, branded seal packaging, and consistent taste to justify premium."
+    },
+    "downsideSurvivalPlan": "If revenues are 40% below target in Month 2: immediately cut staff hours to owner-operator, re-negotiate kiosk rent by 15% with landlord, and launch targeted B2B society subscriptions within 48 hours."
+  }
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist. Return JSON only.");
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.");
     const parsed = extractJsonFromText(raw);
 
     if (parsed?.viabilityScore) {
@@ -818,47 +1027,69 @@ Return ONLY valid JSON:
       localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(parsed));
     } else {
       const numCap = parseInt(initialCapital) || 150000;
-      setAnalysisResult({
-        viabilityScore: 8.4,
-        competitionScore: 6.8,
-        summary: `High domestic demand in ${targetCity}. Focus on lean direct distribution.`,
-        estimatedMarginPercent: "32% - 44%",
-        breakEvenMonths: "5 to 6 Months",
+      const fallbackAnalysis = {
+        viabilityScore: 8.5,
+        competitionScore: 6.9,
+        summary: `Strong operational feasibility in ${targetCity}. The model benefits from rapid cash conversion and healthy gross margins.`,
+        estimatedMarginPercent: "35% - 46%",
+        breakEvenMonths: "4 to 5 Months",
         capex: [
-          { item: "Machinery / Equipment / Setup", cost: `₹${Math.round(numCap * 0.35).toLocaleString("en-IN")}` },
-          { item: "Opening Stock & Packaging", cost: `₹${Math.round(numCap * 0.40).toLocaleString("en-IN")}` }
+          { item: "Machinery, Setup & Dispensing Units", cost: `₹${Math.round(numCap * 0.38).toLocaleString('en-IN')}` },
+          { item: "Opening Raw Stock & Packaging", cost: `₹${Math.round(numCap * 0.32).toLocaleString('en-IN')}` },
+          { item: "Branding, Soundbox & Digital Standees", cost: `₹${Math.round(numCap * 0.12).toLocaleString('en-IN')}` },
+          { item: "Working Capital Safety Reserve", cost: `₹${Math.round(numCap * 0.18).toLocaleString('en-IN')}` }
         ],
         monthlyOpex: [
-          { item: "Space Rent / Utility Share", cost: "₹14,000 - ₹22,000" },
-          { item: "Logistics & Consumables", cost: "₹8,500" }
+          { item: "Kiosk / Space Rent", cost: "₹18,000 - ₹25,000" },
+          { item: "Helper / Operational Staff", cost: "₹12,000" },
+          { item: "Utilities, Soundbox SIM & Sundries", cost: "₹5,500" }
         ],
-        licenses: ["MSME Udyam Registration (Free)", "GSTIN Registration", "FSSAI / Municipal Trade Permit"]
-      });
+        licenses: ["MSME Udyam Registration (Govt Portal - Free)", "GSTIN Registration", "FSSAI Basic Registration / Local Trade Permit"],
+        riskMatrix: {
+          udhaarRisk: {
+            level: "Medium",
+            threat: "Customers requesting delayed credit settlement ('Likh lena'), locking up liquidity.",
+            mitigation: "Install an audible UPI soundbox prominently. Enforce a 100% upfront digital billing standard."
+          },
+          seasonalRisk: {
+            level: "High",
+            threat: "Monsoon street flooding and post-festival demand dips reducing walk-in footfall.",
+            mitigation: "Setup an automated WhatsApp Broadcast catalog for nearby apartment complexes to sustain rainy-day deliveries."
+          },
+          regulatoryRisk: {
+            level: "Medium",
+            threat: "Unannounced municipal health checks or commercial zoning notices.",
+            mitigation: "Frame the MSME Udyam and FSSAI permit visibly beside the cash counter. Keep rent agreement receipts handy."
+          },
+          supplierRisk: {
+            level: "High",
+            threat: "Input price inflation for key consumables eroding unit profitability.",
+            mitigation: "Maintain accounts with at least two alternative wholesale distributors on IndiaMART."
+          },
+          priceSensitivityRisk: {
+            level: "Medium",
+            threat: "Aggressive price undercutting by informal street vendors.",
+            mitigation: "Emphasize superior hygiene, tamper-evident sealed packaging, and fast sub-2 minute turnaround."
+          },
+          downsideSurvivalPlan: "Emergency Protocol: If Month 2 revenue falls below break-even, transition to owner-operator mode to eliminate staff salary and convert 40% of sales to pre-booked corporate catering."
+        }
+      };
+      setAnalysisResult(fallbackAnalysis);
+      localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(fallbackAnalysis));
     }
     setIsAnalyzing(false);
   };
 
-  // --- TAB 4: SPRINT TASKS ---
-  const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint`, [
-    {
-      id: "day_1",
-      dayTitle: "Day 1: Ground Demand Validation",
-      phase: "Phase 1: Validation",
-      task: "Survey 20 target customers in target zone.",
-      timeEst: "3.5 hrs",
-      budgetEst: "₹300",
-      priority: "Critical",
-      completed: false,
-      notes: ""
-    }
-  ]));
-
-  const [roadmapFilter, setRoadmapFilter] = useState("all");
+  // ==========================================
+  // TAB 4: 10-DAY STEP-BY-STEP LAUNCH SPRINT
+  // ==========================================
+  const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
+  const [sprintFilter, setSprintFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem(`${STORAGE_PREFIX}daily_sprint`, JSON.stringify(dailySprintTasks));
+    localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(dailySprintTasks));
   }, [dailySprintTasks]);
 
   const toggleDailyTask = (id) => {
@@ -866,31 +1097,56 @@ Return ONLY valid JSON:
     setDailySprintTasks(updated);
   };
 
+  const resetSprintTasks = () => {
+    if (window.confirm("Reset all 10-day tasks to default?")) {
+      setDailySprintTasks(INITIAL_10_DAY_SPRINT);
+    }
+  };
+
   const handleConsultDailyTaskAI = async (taskItem) => {
     setIsLoadingTaskAdvice(true);
-    setTaskAdviceModal({ title: taskItem.dayTitle, task: taskItem.task, sopText: "" });
-
-    const prompt = `Provide a step-by-step Standard Operating Procedure (SOP) for this daily task:
-Task: "${taskItem.task}" (${taskItem.dayTitle})
-Time: ${taskItem.timeEst} | Budget: ${taskItem.budgetEst}
-Include:
-1. Exact Step-by-Step Checklist for today.
-2. Negotiation Dialogue / Script in Hinglish/English.
-3. Don't-do-this pitfall.`;
-
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager.");
     setTaskAdviceModal({
       title: taskItem.dayTitle,
-      task: taskItem.task,
-      sopText: raw || "Arrive early at supplier markets. Ask for volume quotes. Never pay 100% advance."
+      phase: taskItem.phase,
+      sopText: ""
+    });
+
+    const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service Venture";
+    const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses.
+Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
+Day & Task: "${taskItem.dayTitle}" - ${taskItem.task}
+Business Context: ${ventureContext}
+Target Budget: ${taskItem.budgetEst} | Time Allocated: ${taskItem.timeEst}
+
+Provide:
+1. EXACT HOURLY CHECKLIST for this day.
+2. VERBATIM NEGOTIATION SCRIPT / DIALOGUE in Hinglish/English (e.g. speaking to landlord, wholesale vendor, or customer).
+3. 2 FATAL GROUND PITFALLS to avoid in India.
+4. VERIFIABLE COMPLETION METRIC before going to bed.`;
+
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager. Provide direct, tactical, culturally astute advice.");
+    setTaskAdviceModal({
+      title: taskItem.dayTitle,
+      phase: taskItem.phase,
+      sopText:
+        raw ||
+        `### Checklist for ${taskItem.dayTitle}\n\n1. Arrive at the site or market early (before 10:00 AM) when vendors and authorities are fresh.\n2. **Negotiation Script (Hinglish):**\n"Bhaiya, hum regular monthly bulk order plan kar rahe hain. Pehla sample batch wholesale rate pe dijiye. Agar quality theek rahi toh har hafte repeat order aayega."\n3. **Pitfall:** Never pay 100% advance to an unverified vendor. Pay 30% advance max.\n4. **Completion Metric:** Ensure signed receipt or written WhatsApp confirmation before concluding Day ${taskItem.dayNumber}.`
     });
     setIsLoadingTaskAdvice(false);
   };
 
   const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
-  const sprintProgressPercent = dailySprintTasks.length > 0 ? Math.round((completedDailyCount / dailySprintTasks.length) * 100) : 0;
+  const sprintProgressPercent = Math.round((completedDailyCount / dailySprintTasks.length) * 100);
 
-  // --- TAB 5: CALCULATORS & LEDGER ---
+  const filteredTasks = dailySprintTasks.filter((t) => {
+    if (sprintFilter === "incomplete") return !t.completed;
+    if (sprintFilter === "completed") return t.completed;
+    return true;
+  });
+
+  // ==========================================
+  // TAB 5: CALCULATORS & LEDGER
+  // ==========================================
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -905,8 +1161,8 @@ Include:
   const [isAuditingLedger, setIsAuditingLedger] = useState(false);
 
   const [ledgerEntries, setLedgerEntries] = useState(() => safeGetStorage(`${STORAGE_PREFIX}ledger`, [
-    { id: 1, desc: "Packaging Cartons Purchase", type: "out", amount: 4500, date: "Today" },
-    { id: 2, desc: "Direct UPI Order Payments", type: "in", amount: 12400, date: "Today" }
+    { id: 1, desc: "Packaging Cartons & Sealed Bags Purchase", type: "out", amount: 4500, date: "Today" },
+    { id: 2, desc: "Direct UPI Order Receipts", type: "in", amount: 14200, date: "Today" }
   ]));
   const [ledgerDesc, setLedgerDesc] = useState("");
   const [ledgerAmount, setLedgerAmount] = useState("");
@@ -918,10 +1174,10 @@ Include:
     const netMargin = (((Number(sellingPrice) - totalUnitCost) / Number(sellingPrice)) * 100).toFixed(1);
 
     const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
-Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit (ITC).`;
+Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD orders, and GST Input Tax Credit (ITC).`;
 
     const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
-    setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in 15% RTO buffer for COD orders and claim your ${gstPercent}% ITC.`);
+    setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 12% RTO return buffer for cash-on-delivery orders, and ensure vendor tax invoices are collected to claim your ${gstPercent}% GST Input Tax Credit.`);
     setIsAnalyzingMargin(false);
   };
 
@@ -929,9 +1185,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     setIsAuditingLedger(true);
     const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
 
-    const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 insights on working capital runway, cash leaks, and Udhaar recovery.`;
+    const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 specific observations on working capital runway, petty cash leakages, and Udhaar recovery.`;
     const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.");
-    setAiLedgerAudit(res || "Inflows are steady. Keep 45 days fixed expense buffer and incentivize instant UPI settlements with 2% discount.");
+    setAiLedgerAudit(res || "Inflows are consistent. Keep 45 days of fixed expenses untouched in a liquid current account, and convert repeat customers to prepaid digital UPI balances.");
     setIsAuditingLedger(false);
   };
 
@@ -946,45 +1202,49 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const unitContribution = Number(unitRevenue) - Number(unitVariableCost);
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
 
-  // --- TAB 6: LIVE AI MARKET RADAR ---
+  // ==========================================
+  // TAB 6: LIVE AI MARKET RADAR
+  // ==========================================
   const [marketTrends, setMarketTrends] = useState(() => safeGetStorage(`${STORAGE_PREFIX}market_trends`, [
     {
-      tag: "Logistics",
-      title: "ONDC Hyperlocal Integration Subsidies",
-      desc: "Local kiranas & retailers utilizing ONDC logistics aggregators can ship within a 5km radius for under ₹30/order."
+      tag: "Hyperlocal Logistics",
+      title: "ONDC Direct Merchant Integrations",
+      desc: "Independent eateries and retailers utilizing ONDC protocol logistics partners are fulfilling deliveries within 4km for sub-₹30 per packet without 30% marketplace commissions."
     },
     {
-      tag: "Compliance",
-      title: "IMS (Invoice Management System) Mandate",
-      desc: "New GST input matching rules mandate real-time acceptance of vendor invoices to ensure seamless ITC claims."
+      tag: "GST Compliance",
+      title: "IMS (Invoice Management System) Input Matching",
+      desc: "GSTN's automated invoice matching mandates daily reconciliation of vendor invoices in GSTR-2B before claiming monthly Input Tax Credit (ITC)."
     },
     {
-      tag: "Festive Trends",
-      title: "Pre-Season Packaging Inventory Buffer",
-      desc: "Corrugated box rates routinely surge prior to peak wedding and festival quarters. Lock in 60-day stock early."
+      tag: "Supply Chain",
+      title: "Pre-Festive Packaging Inventory Lock-In",
+      desc: "Corrugated box manufacturing and paper pulp rates surge 15% preceding Diwali and wedding quarters. Pre-order 60 days of packaging stock early."
     }
   ]));
   const [isScanningMarket, setIsScanningMarket] = useState(false);
 
   const handleScanLiveMarketAI = async () => {
     setIsScanningMarket(true);
-    const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics, Sourcing, Policy). Output JSON:
+    const prompt = `Provide 3 fresh, tactical Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output valid JSON:
 { "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Macroeconomic SME Analyst.");
+    const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.");
     const parsed = extractJsonFromText(raw);
-    if (parsed?.updates) {
+    if (parsed?.updates && Array.isArray(parsed.updates)) {
       setMarketTrends(parsed.updates);
       localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
     }
     setIsScanningMarket(false);
   };
 
-  // --- FLOATING BIZMENTOR CHAT ---
+  // ==========================================
+  // 24/7 BIZMENTOR CHAT
+  // ==========================================
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
-      text: "Namaste! I am your 24/7 BizMentor AI. Ask me about polite udhaar recovery, vendor negotiations, GST compliance, or offline marketing in India!"
+      text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about lease negotiations, Udhaar recovery scripts, GST filing, or Indiamart sourcing!"
     }
   ]);
   const [inputChat, setInputChat] = useState("");
@@ -998,18 +1258,21 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
     setIsChatLoading(true);
 
-    const prompt = `Question from Indian Entrepreneur: ${userText}\nProvide actionable, culturally astute advice for Indian SME operations.`;
+    const prompt = `Question from Indian Entrepreneur: ${userText}\nVenture: ${selectedVenture ? selectedVenture.title : "Indian SME"}\nProvide actionable, culturally astute advice for Indian SME operations.`;
     const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.");
     setChatMessages((prev) => [
       ...prev,
-      { sender: "mentor", text: res || "Always maintain a strict credit period ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests." }
+      {
+        sender: "mentor",
+        text: res || "Always maintain a strict credit ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests politely."
+      }
     ]);
     setIsChatLoading(false);
   };
 
-  // ==============================================================
+  // ==========================================
   // ADMIN CONTROL ACTIONS
-  // ==============================================================
+  // ==========================================
   const handleAdminApproveTxn = async (txn) => {
     const txnId = txn._id || txn.id;
     try {
@@ -1034,12 +1297,8 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       if (res.ok) {
         alert(`Transaction ${txn.paymentId} Approved! Pro access granted to ${txn.userEmail}.`);
         fetchDbData(currentUser);
-      } else {
-        alert("Transaction approved locally.");
       }
     } catch (e) {
-      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "approved" } : t));
-      setSubmittedTxns(updated);
       alert("Updated transaction status in local state.");
     }
   };
@@ -1047,7 +1306,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const handleAdminRevokeTxn = async (txn) => {
     const txnId = txn._id || txn.id;
     try {
-      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+      await fetch(`${API_BASE_URL}/subscriptions/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1064,16 +1323,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       setRegisteredUsersList((prev) =>
         prev.map((u) => (u.emailOrPhone?.toLowerCase() === txn.userEmail?.toLowerCase() ? { ...u, isProUser: false } : u))
       );
-
-      if (res.ok) {
-        alert(`Transaction ${txn.paymentId} revoked.`);
-        fetchDbData(currentUser);
-      } else {
-        alert("Transaction revoked locally.");
-      }
+      alert(`Transaction ${txn.paymentId} revoked.`);
+      fetchDbData(currentUser);
     } catch (e) {
-      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "rejected" } : t));
-      setSubmittedTxns(updated);
       alert("Updated transaction status in local state.");
     }
   };
@@ -1093,7 +1345,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       );
       setRegisteredUsersList(updated);
       localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(updated));
-      alert(`Toggled Pro status in local state for ${emailOrPhone}`);
     }
   };
 
@@ -1125,9 +1376,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       await fetchDbData(currentUser);
       setShowVerificationModal(false);
-      alert(
-        `Payment ID ${cleanId} stored in MongoDB!\nStatus: PENDING ADMIN APPROVAL.\nYour Pro subscription will activate automatically once the admin approves it.`
-      );
+      alert(`Payment ID ${cleanId} stored in MongoDB!\nStatus: PENDING ADMIN APPROVAL.`);
     } catch (err) {
       setVerificationError(err.message);
     } finally {
@@ -1136,7 +1385,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   };
 
   // ==========================================
-  // AUTH WALL
+  // AUTH WALL VIEW
   // ==========================================
   if (!currentUser) {
     return (
@@ -1346,7 +1595,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <input
                       type={showPasswordToggle ? "text" : "password"}
                       required
-                      autoComplete="new-password"
                       placeholder="At least 4 characters"
                       value={resetNewPassword}
                       onChange={(e) => setResetNewPassword(e.target.value)}
@@ -1359,32 +1607,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <input
                       type={showPasswordToggle ? "text" : "password"}
                       required
-                      autoComplete="new-password"
                       placeholder="Re-enter new password"
                       value={resetConfirmPassword}
                       onChange={(e) => setResetConfirmPassword(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
                     />
-
-                    {resetConfirmPassword && (
-                      <div className={`text-[10px] mt-1 font-semibold flex items-center space-x-1 ${
-                        resetNewPassword.trim() === resetConfirmPassword.trim()
-                          ? "text-emerald-400"
-                          : "text-rose-400"
-                      }`}>
-                        {resetNewPassword.trim() === resetConfirmPassword.trim() ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            <span>Passwords match</span>
-                          </>
-                        ) : (
-                          <>
-                            <X className="w-3 h-3" />
-                            <span>Passwords do not match</span>
-                          </>
-                        )}
-                      </div>
-                    )}
                   </div>
 
                   <button
@@ -1433,9 +1660,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                             setOtpStep(1);
                             setAuthError("");
                             setAuthSuccessNotice("");
-                            setEnteredOtp("");
-                            setResetNewPassword("");
-                            setResetConfirmPassword("");
                           }}
                           className="text-[11px] font-bold text-amber-400 hover:underline cursor-pointer"
                         >
@@ -1467,140 +1691,18 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </button>
               </form>
             )}
-
-            {authMode === "login" && (
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-center">
-                <span className="text-[11px] text-slate-400">Locked out? </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMode("forgot");
-                    setOtpStep(1);
-                    setAuthError("");
-                    setAuthSuccessNotice("");
-                    setEnteredOtp("");
-                    setResetNewPassword("");
-                    setResetConfirmPassword("");
-                  }}
-                  className="text-[11px] text-amber-400 font-bold hover:underline cursor-pointer"
-                >
-                  Recover Password with Real Email OTP 🔑
-                </button>
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Global Footer (Visible on Login/Signup too) */}
         <footer className="w-full max-w-7xl mx-auto border-t border-slate-800/80 pt-4 pb-2 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>BizNavigator © 2026. Made for Indian SMEs.</div>
           <div className="flex flex-wrap gap-4 text-slate-400 font-medium">
-            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">Terms of Service</button>
-            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">Privacy Policy</button>
-            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">Refund Policy</button>
-            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">Contact & Support</button>
+            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">Terms</button>
+            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">Privacy</button>
+            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">Refund</button>
+            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">Contact</button>
           </div>
         </footer>
-
-        {/* LEGAL POLICIES MODAL (POPUP) */}
-        {legalModalType && (
-          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
-              <button
-                type="button"
-                onClick={() => setLegalModalType(null)}
-                className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              {legalModalType === "terms" && (
-                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-amber-400" />
-                    Terms of Service & AI Disclaimer
-                  </h2>
-                  <p className="text-slate-400">Last updated: October 2026</p>
-
-                  <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
-                    <strong>⚠️ Mandatory Financial & Legal Disclaimer:</strong> BizNavigator provides AI-driven business feasibility estimations, financial calculators, and market insights for <strong>educational and informational purposes only</strong>. We do not provide statutory chartered accountancy, legal advisory, or guaranteed profit assurances. Actual business outcomes vary by execution, regional licensing, and market volatility.
-                  </div>
-
-                  <h3 className="font-bold text-slate-100 text-sm mt-3">1. Account Security & Fair Usage</h3>
-                  <p>Users are responsible for safeguarding their login credentials. Any automated abuse, excessive scraping, or sharing of Pro memberships across unauthorized third parties will lead to permanent account suspension without notice.</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm mt-3">2. Intellectual Property</h3>
-                  <p>The proprietary algorithms, branding, custom UI, and system design of BizNavigator remain the exclusive property of BizNavigator Headquarters.</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm mt-3">3. Governing Law</h3>
-                  <p>These terms are governed by the laws of India. Any legal dispute or claims arising out of services shall be subject to the exclusive jurisdiction of the competent courts in New Delhi, India.</p>
-                </div>
-              )}
-
-              {legalModalType === "privacy" && (
-                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                    <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                    Privacy Policy (DPDP Act 2023 Compliant)
-                  </h2>
-                  <p className="text-slate-400">Last updated: October 2026</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm">1. Data We Collect</h3>
-                  <p>We collect your Name, Email address, Business name, and hashed passwords solely for profile management, authentication, and secure OTP verification via transactional email services.</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm">2. Payment & Banking Data</h3>
-                  <p>BizNavigator <strong>never stores</strong> your Credit/Debit Card numbers, UPI PIN, or Netbanking passwords. All monetary transactions are processed through end-to-end encrypted gateways governed by the Reserve Bank of India (RBI).</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm">3. Zero Third-Party Selling</h3>
-                  <p>We do not rent, monetize, or sell your personal credentials or business ideas to third-party advertising brokers. Your database records are strictly isolated in encrypted cloud clusters.</p>
-                </div>
-              )}
-
-              {legalModalType === "refund" && (
-                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                    <IndianRupee className="w-5 h-5 text-sky-400" />
-                    Refund & Cancellation Policy
-                  </h2>
-                  <p className="text-slate-400">Last updated: October 2026</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm">1. Digital SaaS Deliverables</h3>
-                  <p>BizNavigator provides on-demand, instant digital services (AI-generated business plans, financial projections, and database access). Because compute resources and AI generations are provisioned immediately upon purchase, <strong>Day Pass (₹49), Monthly Pro (₹249), and Quarterly Pro (₹599) plans are strictly non-refundable</strong> once activated.</p>
-
-                  <h3 className="font-bold text-slate-100 text-sm">2. Accidental Duplicate Payments</h3>
-                  <p>If a technical glitch causes duplicate deductions for the same plan, users can email our support team with both Razorpay Payment IDs within 48 hours. Upon verification, the duplicate charge will be credited back to the original payment source within 5 to 7 working days.</p>
-                </div>
-              )}
-
-              {legalModalType === "contact" && (
-                <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-                  <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                    <Mail className="w-5 h-5 text-amber-400" />
-                    Customer Care & Grievance Redressal
-                  </h2>
-                  <p>For transaction verification queries, operational issues, or partnership proposals, reach out to our team:</p>
-
-                  <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2 font-mono text-[11px]">
-                    <p><strong className="text-slate-400">Entity:</strong> BizNavigator</p>
-                    <p><strong className="text-slate-400">Support Email:</strong> admin@biznavigator.in</p>
-                    <p><strong className="text-slate-400">Operating Base:</strong> Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
-                    <p><strong className="text-slate-400">Turnaround Time:</strong> Monday to Saturday (10:00 AM – 7:00 PM IST). Inquiries are resolved within 24–48 hours.</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-4 border-t border-slate-800 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => setLegalModalType(null)}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -1633,7 +1735,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <Crown className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">ADMIN</span>
                 </div>
-
                 <button
                   type="button"
                   onClick={() => {
@@ -1641,10 +1742,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     setActiveTab("admin-works");
                     setShowAdminConsoleModal(true);
                   }}
-                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 cursor-pointer"
+                  className="bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
                 >
                   <Settings className="w-3.5 h-3.5" />
-                  <span>Administrative Works ⚙️</span>
+                  <span>Admin Console ⚙️</span>
                 </button>
               </div>
             ) : isUserPro ? (
@@ -1679,12 +1780,13 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         </div>
 
+        {/* Tab Navigation */}
         <div className="max-w-7xl mx-auto px-4 flex space-x-1 overflow-x-auto text-sm border-t border-slate-800/80 pt-1">
           {[
             { id: "idea-finder", label: "AI Idea Matcher (5 Ideas)", icon: Lightbulb },
             { id: "location-scout", label: "Location Scout 📍", icon: MapPin },
-            { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
-            { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
+            { id: "evaluator", label: "Feasibility & Risk Matrix 📊", icon: Briefcase },
+            { id: "roadmap", label: `10-Day Sprint Guide (${sprintProgressPercent}%) 🗓️`, icon: Calendar },
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
             { id: "market", label: "Live AI Market Radar", icon: FileText },
             ...(isAdminUser
@@ -1723,177 +1825,47 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       {selectedVenture && (
         <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-transparent border-b border-amber-500/30 px-4 py-2 text-xs text-amber-200">
           <div className="max-w-7xl mx-auto flex items-center justify-between">
-            <div>
-              <span className="bg-amber-500 text-slate-950 font-black px-2 py-0.5 rounded text-[10px] mr-2">
-                ACTIVE
+            <div className="flex items-center space-x-2">
+              <span className="bg-amber-500 text-slate-950 font-black px-2 py-0.5 rounded text-[10px]">
+                ACTIVE PIPELINE
               </span>
               <strong>{selectedVenture.title}</strong>
-              <span className="text-slate-400 ml-2">({selectedVenture.category})</span>
+              <span className="text-slate-400 hidden sm:inline">({selectedVenture.category})</span>
             </div>
-            <div className="flex space-x-2">
+            <div className="flex items-center space-x-3 text-xs">
               <button onClick={() => setActiveTab("location-scout")} className="text-amber-300 hover:underline cursor-pointer">1. Scout 📍</button>
               <span>•</span>
-              <button onClick={() => setActiveTab("evaluator")} className="text-amber-300 hover:underline cursor-pointer">2. Feasibility 📊</button>
+              <button onClick={() => setActiveTab("evaluator")} className="text-amber-300 hover:underline cursor-pointer">2. Feasibility & Risk 📊</button>
               <span>•</span>
-              <button onClick={() => setActiveTab("roadmap")} className="text-amber-300 hover:underline cursor-pointer">3. Sprint 🗓️</button>
+              <button onClick={() => setActiveTab("roadmap")} className="text-amber-300 hover:underline cursor-pointer">3. 10-Day Sprint 🗓️</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Main Body */}
+      {/* MAIN CONTAINER */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB: ADMIN WORKS */}
-        {activeTab === "admin-works" && isAdminUser && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
-              <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
-                <Crown className="w-4 h-4" />
-                <span>Executive Administrative Workspace</span>
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Payment Approvals & User Access Management (MongoDB Atlas)
-              </h1>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-slate-400 text-xs block">Total Users</span>
-                  <span className="text-2xl font-black text-slate-100 mt-1 block">
-                    {registeredUsersList.length + 1}
-                  </span>
-                </div>
-                <Users className="w-8 h-8 text-indigo-400" />
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-slate-400 text-xs block">Approved Transactions</span>
-                  <span className="text-2xl font-black text-emerald-400 mt-1 block">
-                    {submittedTxns.filter((t) => t.status === "approved").length}
-                  </span>
-                </div>
-                <ShieldCheck className="w-8 h-8 text-emerald-400" />
-              </div>
-
-              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-slate-400 text-xs block">Pending Approvals</span>
-                  <span className="text-2xl font-black text-amber-400 mt-1 block">
-                    {submittedTxns.filter((t) => t.status === "pending").length}
-                  </span>
-                </div>
-                <Clock className="w-8 h-8 text-amber-400" />
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2">
-                  <ShieldCheck className="w-5 h-5 text-amber-400" />
-                  <span>Razorpay Payment Approvals & Audit (MongoDB)</span>
-                </h3>
-                <button
-                  type="button"
-                  onClick={() => fetchDbData(currentUser)}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg text-xs flex items-center space-x-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Sync DB</span>
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {submittedTxns.length === 0 ? (
-                  <div className="text-slate-500 text-xs py-8 text-center">No payment submissions yet.</div>
-                ) : (
-                  submittedTxns.map((txn) => (
-                    <div key={txn._id || txn.id || txn.paymentId} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
-                      <div>
-                        <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                        <div className="text-slate-400">{txn.userName} ({txn.userEmail}) • {txn.plan}</div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {txn.status !== "approved" ? (
-                          <button
-                            type="button"
-                            onClick={() => handleAdminApproveTxn(txn)}
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
-                          >
-                            Approve Pro
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleAdminRevokeTxn(txn)}
-                            className="bg-rose-950 border border-rose-500/40 text-rose-400 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
-                          >
-                            Revoke Pro
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
-              <h3 className="font-bold text-slate-100 text-base flex items-center space-x-2 border-b border-slate-800 pb-3">
-                <Users className="w-5 h-5 text-indigo-400" />
-                <span>MongoDB Registered User Directory</span>
-              </h3>
-
-              <div className="space-y-2 text-xs">
-                {registeredUsersList.length === 0 ? (
-                  <div className="text-slate-500 text-center py-6">No registered users found in MongoDB.</div>
-                ) : (
-                  registeredUsersList.map((usr, i) => (
-                    <div key={usr._id || i} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between">
-                      <div>
-                        <span className="font-bold text-slate-200">{usr.name}</span>
-                        <span className="text-slate-500 ml-2">({usr.emailOrPhone})</span>
-                        <span className="text-[10px] text-amber-400 block">{usr.businessName}</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleAdminToggleUserPro(usr.emailOrPhone)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                          usr.isProUser
-                            ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40"
-                            : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
-                        }`}
-                      >
-                        {usr.isProUser ? "Active Pro (Revoke)" : "Grant Pro"}
-                      </button>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 1: 6-INPUT AI IDEA MATCHER */}
+        {/* ========================================================= */}
+        {/* TAB 1: 6-INPUT AI IDEA MATCHER + DEEP ANALYSIS            */}
+        {/* ========================================================= */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
-                  <span>Input Your 6 Parameters</span>
+                  <span>Configure Your 6 Parameters</span>
                 </h2>
 
                 <form onSubmit={handleGenerateIdeas} className="space-y-3.5 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">1. Budget (₹ INR)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">1. Capital Budget (₹ INR)</label>
                     <input
                       type="number"
                       required
                       value={finderBudget}
                       onChange={(e) => setFinderBudget(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
                     />
                   </div>
 
@@ -1947,7 +1919,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     </div>
 
                     <div>
-                      <label className="block font-semibold text-slate-300 mb-1">6. Risk Level</label>
+                      <label className="block font-semibold text-slate-300 mb-1">6. Risk Appetite</label>
                       <select
                         value={finderRisk}
                         onChange={(e) => setFinderRisk(e.target.value)}
@@ -1968,7 +1940,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating 6 Inputs with AI...</span>
+                        <span>Evaluating 6 Parameters with AI...</span>
                       </>
                     ) : (
                       <>
@@ -1980,6 +1952,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </form>
               </div>
 
+              {/* Ideas Output Column */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
@@ -2013,17 +1986,28 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                         </div>
 
                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300">
-                          <strong className="text-amber-400">Why it matches your 6 inputs: </strong>
+                          <strong className="text-amber-400">Why it fits your 6 inputs: </strong>
                           {idea.whyFit}
                         </div>
 
-                        <div className="flex justify-end pt-2">
+                        <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
+                          {/* BUTTON 1: RUN DEEP ANALYSIS */}
+                          <button
+                            type="button"
+                            onClick={() => handleOpenDeepAnalysis(idea)}
+                            className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition cursor-pointer"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>Run Deep Analysis 🔬</span>
+                          </button>
+
+                          {/* BUTTON 2: CHOOSE VENTURE */}
                           <button
                             type="button"
                             onClick={() => handleChooseVenture(idea)}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
+                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition cursor-pointer"
                           >
-                            <span>{isSelected ? "Active Venture Selected 🚀" : "Choose This Idea & Build Plan 🚀"}</span>
+                            <span>{isSelected ? "Active Pipeline 🚀" : "Adopt Venture 🚀"}</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -2033,7 +2017,312 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 ) : (
                   <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
                     <Lightbulb className="w-10 h-10 text-slate-700 mb-2" />
-                    <p className="text-sm font-semibold text-slate-400">Fill your 6 inputs to evaluate 5 ideas.</p>
+                    <p className="text-sm font-semibold text-slate-400">Configure your 6 parameters on the left to evaluate 5 bespoke ideas.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* MODAL: ONE-CLICK DEEP ANALYSIS */}
+            {deepAnalysisIdea && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[110] flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 relative shadow-2xl text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setDeepAnalysisIdea(null)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                  <div className="border-b border-slate-800 pb-4">
+                    <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">
+                      Deep Feasibility & Unit Economics Audit
+                    </span>
+                    <h3 className="text-xl font-extrabold text-slate-100 mt-2">{deepAnalysisIdea.title}</h3>
+                    <p className="text-slate-400 text-xs">{deepAnalysisIdea.tagline}</p>
+                  </div>
+
+                  {isLoadingDeepAnalysis ? (
+                    <div className="py-16 text-center space-y-3">
+                      <RefreshCw className="w-8 h-8 animate-spin text-amber-400 mx-auto" />
+                      <p className="text-slate-300 font-semibold text-sm">Calculating Unit Economics, Break-Even & IndiaMART Sourcing Channels...</p>
+                    </div>
+                  ) : deepAnalysisData ? (
+                    <div className="space-y-6">
+                      {/* 1. Unit Economics */}
+                      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
+                        <h4 className="font-bold text-amber-400 text-sm flex items-center space-x-2">
+                          <Calculator className="w-4 h-4" />
+                          <span>1. Unit Economics & Margin Breakdown</span>
+                        </h4>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Selling Price / Ticket:</span>
+                            <strong className="text-slate-100 text-sm">{deepAnalysisData.unitEconomics?.sellingPricePerUnit}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">COGS (Raw Materials):</span>
+                            <strong className="text-rose-400 text-sm">{deepAnalysisData.unitEconomics?.cogsRawMaterials}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Packaging & Consumables:</span>
+                            <strong className="text-rose-400 text-sm">{deepAnalysisData.unitEconomics?.packagingAndConsumables}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Delivery / Commission:</span>
+                            <strong className="text-slate-300 text-sm">{deepAnalysisData.unitEconomics?.deliveryOrPlatformFee}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">UPI Soundbox / Gateway:</span>
+                            <strong className="text-slate-300 text-sm">{deepAnalysisData.unitEconomics?.paymentGatewayAndSoundboxFee}</strong>
+                          </div>
+                          <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl">
+                            <span className="text-emerald-400 block text-[11px] font-bold">Net Margin / Unit:</span>
+                            <strong className="text-emerald-300 text-sm">{deepAnalysisData.unitEconomics?.netMarginPerUnit}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Break-Even Analysis */}
+                      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
+                        <h4 className="font-bold text-sky-400 text-sm flex items-center space-x-2">
+                          <TrendingUp className="w-4 h-4" />
+                          <span>2. Break-Even Volume & Timeline</span>
+                        </h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Est. Monthly Fixed Cost:</span>
+                            <strong className="text-slate-200">{deepAnalysisData.breakEvenAnalysis?.estimatedMonthlyFixedCost}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Daily Sales to Break-Even:</span>
+                            <strong className="text-amber-400">{deepAnalysisData.breakEvenAnalysis?.dailyUnitsRequiredToBreakEven}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Healthy Profit Target Volume:</span>
+                            <strong className="text-emerald-400">{deepAnalysisData.breakEvenAnalysis?.comfortableProfitTargetVolume}</strong>
+                          </div>
+                          <div className="bg-slate-900 p-3 rounded-xl">
+                            <span className="text-slate-400 block text-[11px]">Capital Recovery Runway:</span>
+                            <strong className="text-indigo-400">{deepAnalysisData.breakEvenAnalysis?.timeToBreakEven}</strong>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Customer Archetype */}
+                      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
+                        <h4 className="font-bold text-amber-400 text-sm flex items-center space-x-2">
+                          <Users className="w-4 h-4" />
+                          <span>3. Target Customer Archetype & Conversion Trigger</span>
+                        </h4>
+                        <p className="text-slate-300">
+                          <strong className="text-slate-200">Ideal Buyer Persona: </strong>
+                          {deepAnalysisData.customerArchetype?.persona}
+                        </p>
+                        <p className="text-slate-300">
+                          <strong className="text-slate-200">Footfall Conversion Trigger: </strong>
+                          {deepAnalysisData.customerArchetype?.conversionTrigger}
+                        </p>
+                        <p className="text-slate-300">
+                          <strong className="text-slate-200">Repeat Retention Frequency: </strong>
+                          {deepAnalysisData.customerArchetype?.repeatPurchaseRate}
+                        </p>
+                      </div>
+
+                      {/* 4. Supply Chain & Vendor Guide */}
+                      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
+                        <h4 className="font-bold text-indigo-400 text-sm flex items-center space-x-2">
+                          <Truck className="w-4 h-4" />
+                          <span>4. Supply Chain & B2B Vendor Sourcing Guide</span>
+                        </h4>
+                        <div className="space-y-2 text-slate-300">
+                          <p>
+                            <strong className="text-slate-200">Recommended Wholesale Platforms: </strong>
+                            {deepAnalysisData.supplyChainSourcingGuide?.primaryPlatforms}
+                          </p>
+                          <p>
+                            <strong className="text-slate-200">Physical Sourcing Hubs: </strong>
+                            {deepAnalysisData.supplyChainSourcingGuide?.sourcingLocations}
+                          </p>
+                          <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-amber-300 text-[11px]">
+                            <strong>Indian Vendor Negotiation Protocol: </strong>
+                            {deepAnalysisData.supplyChainSourcingGuide?.vendorNegotiationRule}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Modal CTA */}
+                      <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
+                        <button
+                          type="button"
+                          onClick={() => setDeepAnalysisIdea(null)}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
+                        >
+                          Close
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleChooseVenture(deepAnalysisIdea);
+                            setDeepAnalysisIdea(null);
+                          }}
+                          className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
+                        >
+                          <span>Adopt This Venture & Scout Locations 📍</span>
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 2: DYNAMIC CITY-SPECIFIC LOCATION SCOUT               */}
+        {/* ========================================================= */}
+        {activeTab === "location-scout" && (
+          <div className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
+                <div className="border-b border-slate-800 pb-3">
+                  <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2">
+                    <MapPin className="w-5 h-5 text-amber-400" />
+                    <span>Commercial Micro-Market Scout</span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Evaluates commercial streets and hubs strictly within your target Indian city.
+                  </p>
+                </div>
+
+                <form onSubmit={handleEvaluateLocations} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Metro</label>
+                    <input
+                      type="text"
+                      required
+                      value={scoutCity}
+                      onChange={(e) => setScoutCity(e.target.value)}
+                      placeholder="e.g. Bengaluru, Mumbai, Delhi-NCR, Pune, Ahmedabad"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
+                    <input
+                      type="text"
+                      required
+                      value={scoutConcept}
+                      onChange={(e) => setScoutConcept(e.target.value)}
+                      placeholder="e.g. Specialty Chai & Snack Kiosk"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Target Monthly Rent Budget (₹/mo)</label>
+                    <input
+                      type="number"
+                      required
+                      value={scoutBudgetRent}
+                      onChange={(e) => setScoutBudgetRent(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Desired Footfall Demographic</label>
+                    <select
+                      value={scoutTrafficType}
+                      onChange={(e) => setScoutTrafficType(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200"
+                    >
+                      <option>Corporate Tech Park & Office Commuters</option>
+                      <option>Transit Hub / Metro Commuters</option>
+                      <option>High-Street Fashion & Family Shoppers</option>
+                      <option>Dense Student Campus / Coaching Corridor</option>
+                      <option>Residential Society Main Market</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isScoutingLocations}
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs flex items-center justify-center space-x-2 shadow-lg cursor-pointer"
+                  >
+                    {isScoutingLocations ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Scouting Real Micro-Markets in {scoutCity}...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Compass className="w-4 h-4" />
+                        <span>Scout Real Micro-Zones in {scoutCity}</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Locations Output Column */}
+              <div className="lg:col-span-7 space-y-4">
+                {scoutResults?.cityOverview && (
+                  <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed">
+                    <strong className="text-amber-400 block font-bold mb-1">Commercial Landscape in {scoutCity}:</strong>
+                    {scoutResults.cityOverview}
+                  </div>
+                )}
+
+                {scoutResults?.locations ? (
+                  scoutResults.locations.map((loc, idx) => (
+                    <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3 shadow-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                        <div>
+                          <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 mr-2">
+                            {loc.zoneClassification}
+                          </span>
+                          <h4 className="text-base font-extrabold text-slate-100 mt-1">{loc.name}</h4>
+                        </div>
+                        <span className="text-emerald-400 font-bold text-xs bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-xl">
+                          {loc.suitabilityScore}% Conversion Match
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs text-slate-300">
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">Estimated Rent:</span>
+                          <strong className="text-amber-300">{loc.estimatedRent}</strong>
+                        </div>
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">Peak Footfall Hours:</span>
+                          <strong className="text-slate-200">{loc.footfallHours}</strong>
+                        </div>
+                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/80">
+                          <span className="text-slate-400 block text-[10px]">Competition Density:</span>
+                          <strong className="text-slate-200">{loc.competitionDensity}</strong>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300 leading-relaxed">
+                        <strong className="text-amber-400">Why this area converts: </strong>
+                        {loc.whyItConverts}
+                      </div>
+
+                      <div className="bg-indigo-950/20 border border-indigo-500/30 p-3 rounded-2xl text-[11px] text-indigo-300">
+                        <strong>💡 Landlord Lease Negotiation Strategy: </strong>
+                        {loc.negotiationTip}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                    <MapPin className="w-10 h-10 text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">Enter your target city and rent budget to scout prime commercial nodes.</p>
                   </div>
                 )}
               </div>
@@ -2041,144 +2330,405 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 2: LOCATION SCOUT */}
-        {activeTab === "location-scout" && (
+        {/* ========================================================= */}
+        {/* TAB 3: BUSINESS EVALUATOR & RISK MATRIX                   */}
+        {/* ========================================================= */}
+        {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-                <form onSubmit={handleEvaluateLocations} className="space-y-4 text-xs">
+                <div className="border-b border-slate-800 pb-3">
+                  <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
+                    <Briefcase className="w-5 h-5 text-amber-400" />
+                    <span>Business Feasibility & Indian Risk Audit</span>
+                  </h3>
+                </div>
+
+                <form onSubmit={handleEvaluateIdea} className="space-y-3.5 text-xs">
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target City</label>
-                    <input type="text" required value={scoutCity} onChange={(e) => setScoutCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                    <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
+                    <textarea
+                      rows={3}
+                      required
+                      value={businessIdea}
+                      onChange={(e) => setBusinessIdea(e.target.value)}
+                      placeholder="e.g. Specialty Chai & Fresh Snack Kiosk"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                    />
                   </div>
+
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Concept</label>
-                    <input type="text" required value={scoutConcept} onChange={(e) => setScoutConcept(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                    <label className="block font-semibold text-slate-300 mb-1">Target City / Micro-Zone</label>
+                    <input
+                      type="text"
+                      required
+                      value={targetCity}
+                      onChange={(e) => setTargetCity(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                    />
                   </div>
+
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Rent Budget (₹/mo)</label>
-                    <input type="number" required value={scoutBudgetRent} onChange={(e) => setScoutBudgetRent(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100" />
+                    <label className="block font-semibold text-slate-300 mb-1">Initial Capital (₹ INR)</label>
+                    <input
+                      type="number"
+                      required
+                      value={initialCapital}
+                      onChange={(e) => setInitialCapital(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
+                    />
                   </div>
-                  <button type="submit" disabled={isScoutingLocations} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs flex items-center justify-center space-x-2 cursor-pointer">
-                    {isScoutingLocations ? <RefreshCw className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
-                    <span>Scout Best Micro-Locations</span>
+
+                  <div>
+                    <label className="block font-semibold text-slate-300 mb-1">Primary Customer Segment</label>
+                    <input
+                      type="text"
+                      required
+                      value={customerSegment}
+                      onChange={(e) => setCustomerSegment(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isAnalyzing}
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg cursor-pointer"
+                  >
+                    {isAnalyzing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Auditing Capex, Opex & Indian Risk Matrix...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Briefcase className="w-4 h-4" />
+                        <span>Run Full Feasibility & Risk Audit</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
 
-              <div className="lg:col-span-7 space-y-4">
-                {scoutResults?.locations?.map((loc, idx) => (
-                  <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
-                    <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                      <h4 className="font-bold text-slate-100 text-sm">{loc.name}</h4>
-                      <span className="text-emerald-400 font-bold text-xs">{loc.suitabilityScore}% Match</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
-                      <div>Rent: <strong className="text-amber-300">{loc.estimatedRent}</strong></div>
-                      <div>Footfall: <strong className="text-slate-200">{loc.footfallProfile}</strong></div>
-                    </div>
-                    <p className="text-xs text-slate-300 italic">"{loc.verdict}"</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: BUSINESS EVALUATOR */}
-        {activeTab === "evaluator" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-              <form onSubmit={handleEvaluateIdea} className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Business Concept</label>
-                  <textarea rows={3} required value={businessIdea} onChange={(e) => setBusinessIdea(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Target Location</label>
-                  <input type="text" value={targetCity} onChange={(e) => setTargetCity(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-300 mb-1">Planned Capital (₹)</label>
-                  <input type="number" value={initialCapital} onChange={(e) => setInitialCapital(e.target.value)} className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200" />
-                </div>
-                <button type="submit" disabled={isAnalyzing} className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 cursor-pointer">
-                  {isAnalyzing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Run Full Feasibility Audit</span>}
-                </button>
-              </form>
-            </div>
-
-            <div className="lg:col-span-7">
-              {analysisResult && (
-                <div id="printable-report" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                    <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
-                    <button
-                      type="button"
-                      onClick={() => window.print()}
-                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1 cursor-pointer"
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Print PDF</span>
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3 text-center text-xs">
-                    <div className="bg-slate-950 p-3 rounded-xl">Viability: <span className="font-bold text-emerald-400 block text-lg">{analysisResult.viabilityScore}/10</span></div>
-                    <div className="bg-slate-950 p-3 rounded-xl">Margin: <span className="font-bold text-sky-400 block text-lg">{analysisResult.estimatedMarginPercent}</span></div>
-                    <div className="bg-slate-950 p-3 rounded-xl">Break-Even: <span className="font-bold text-indigo-400 block text-lg">{analysisResult.breakEvenMonths}</span></div>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-                    {analysisResult.summary}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 4: SPRINT TASKS */}
-        {activeTab === "roadmap" && (
-          <div className="max-w-4xl mx-auto space-y-4">
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-              <div className="flex justify-between items-center border-b border-slate-800 pb-3">
-                <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
-                  <Calendar className="w-4 h-4 text-amber-400" />
-                  <span>Launch Sprint ({sprintProgressPercent}% Complete)</span>
-                </h3>
-              </div>
-
-              <div className="space-y-3">
-                {dailySprintTasks.map((t) => (
-                  <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center text-xs">
-                    <div className="flex items-center space-x-3">
-                      <button type="button" onClick={() => toggleDailyTask(t.id)}>
-                        {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
-                      </button>
+              {/* Evaluation Output Column */}
+              <div className="lg:col-span-7">
+                {analysisResult ? (
+                  <div id="printable-report" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl text-xs">
+                    <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                       <div>
-                        <div className="font-bold text-slate-200">{t.dayTitle}</div>
-                        <div className="text-slate-400 text-[11px]">{t.task}</div>
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Feasibility Verdict</span>
+                        <h3 className="font-extrabold text-slate-100 text-base">{businessIdea}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => window.print()}
+                        className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Print PDF</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                        <span className="text-slate-400 block text-[10px]">Viability Score</span>
+                        <span className="font-black text-emerald-400 block text-lg">{analysisResult.viabilityScore}/10</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                        <span className="text-slate-400 block text-[10px]">Net Margin</span>
+                        <span className="font-black text-sky-400 block text-lg">{analysisResult.estimatedMarginPercent}</span>
+                      </div>
+                      <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                        <span className="text-slate-400 block text-[10px]">Break-Even</span>
+                        <span className="font-black text-indigo-400 block text-lg">{analysisResult.breakEvenMonths}</span>
                       </div>
                     </div>
+
+                    <p className="text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-2xl border border-slate-800">
+                      {analysisResult.summary}
+                    </p>
+
+                    {/* Capex & Opex */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                        <strong className="text-amber-400 block font-bold">Planned Capex Breakdown:</strong>
+                        {analysisResult.capex?.map((c, i) => (
+                          <div key={i} className="flex justify-between border-b border-slate-800/60 pb-1 text-[11px]">
+                            <span className="text-slate-400">{c.item}</span>
+                            <span className="font-bold text-slate-200">{c.cost}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                        <strong className="text-sky-400 block font-bold">Monthly Opex Estimates:</strong>
+                        {analysisResult.monthlyOpex?.map((o, i) => (
+                          <div key={i} className="flex justify-between border-b border-slate-800/60 pb-1 text-[11px]">
+                            <span className="text-slate-400">{o.item}</span>
+                            <span className="font-bold text-slate-200">{o.cost}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Licenses */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                      <strong className="text-indigo-400 block font-bold mb-2">Mandatory Indian Registrations & Permits:</strong>
+                      <div className="flex flex-wrap gap-2">
+                        {analysisResult.licenses?.map((lic, i) => (
+                          <span key={i} className="bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg text-slate-300 text-[11px]">
+                            ✓ {lic}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* COMPREHENSIVE RISK & THREAT MATRIX */}
+                    {analysisResult.riskMatrix && (
+                      <div className="space-y-4 pt-2 border-t border-slate-800">
+                        <h4 className="font-bold text-rose-400 text-sm flex items-center space-x-2">
+                          <AlertTriangle className="w-4 h-4" />
+                          <span>Indian SME Risk & Threat Matrix</span>
+                        </h4>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Cashflow & Udhaar */}
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-200">1. Cashflow & Udhaar Risk</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                analysisResult.riskMatrix.udhaarRisk.level === "High" ? "bg-rose-950 text-rose-400" : "bg-amber-950 text-amber-400"
+                              }`}>{analysisResult.riskMatrix.udhaarRisk.level}</span>
+                            </div>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.udhaarRisk.threat}</p>
+                            <div className="text-emerald-400 text-[11px] mt-1">
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.udhaarRisk.mitigation}
+                            </div>
+                          </div>
+
+                          {/* Seasonal / Monsoons */}
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-200">2. Monsoon & Seasonal Risk</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                analysisResult.riskMatrix.seasonalRisk.level === "High" ? "bg-rose-950 text-rose-400" : "bg-amber-950 text-amber-400"
+                              }`}>{analysisResult.riskMatrix.seasonalRisk.level}</span>
+                            </div>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.seasonalRisk.threat}</p>
+                            <div className="text-emerald-400 text-[11px] mt-1">
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.seasonalRisk.mitigation}
+                            </div>
+                          </div>
+
+                          {/* Regulatory / Municipality */}
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-200">3. Regulatory & Municipality</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-400">
+                                {analysisResult.riskMatrix.regulatoryRisk.level}
+                              </span>
+                            </div>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.regulatoryRisk.threat}</p>
+                            <div className="text-emerald-400 text-[11px] mt-1">
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.regulatoryRisk.mitigation}
+                            </div>
+                          </div>
+
+                          {/* Supplier Volatility */}
+                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-200">4. Raw Material Volatility</span>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-400">
+                                {analysisResult.riskMatrix.supplierRisk.level}
+                              </span>
+                            </div>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.supplierRisk.threat}</p>
+                            <div className="text-emerald-400 text-[11px] mt-1">
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.supplierRisk.mitigation}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Downside Survival Strategy */}
+                        <div className="bg-rose-950/20 border border-rose-500/40 p-4 rounded-2xl space-y-1 text-slate-300">
+                          <strong className="text-rose-400 block font-bold flex items-center space-x-1.5">
+                            <ShieldAlert className="w-4 h-4" />
+                            <span>Worst-Case Downside Survival Contingency Plan:</span>
+                          </strong>
+                          <p className="text-[11px] leading-relaxed">
+                            {analysisResult.riskMatrix.downsideSurvivalPlan}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
+                    <Briefcase className="w-10 h-10 text-slate-700 mb-2" />
+                    <p className="text-sm font-semibold text-slate-400">Run a feasibility audit to generate financial capex, break-even, and Indian risk matrix.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 4: 10-DAY STEP-BY-STEP LAUNCH SPRINT                  */}
+        {/* ========================================================= */}
+        {activeTab === "roadmap" && (
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+                <div>
+                  <h3 className="font-extrabold text-slate-100 text-lg flex items-center space-x-2">
+                    <Calendar className="w-5 h-5 text-amber-400" />
+                    <span>The 10-Day Indian Launch Sprint</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Complete Day 1 through Day 10 execution blueprint with field checklists & Hinglish scripts.
+                  </p>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    onClick={resetSprintTasks}
+                    className="text-xs text-slate-400 hover:text-slate-200 border border-slate-800 px-3 py-1.5 rounded-xl cursor-pointer"
+                  >
+                    Reset
+                  </button>
+                  <div className="bg-slate-950 border border-slate-800 px-3 py-1.5 rounded-xl text-xs font-bold text-amber-400">
+                    {completedDailyCount}/10 Done ({sprintProgressPercent}%)
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress Bar */}
+              <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
+                <div
+                  className="bg-gradient-to-r from-amber-500 to-emerald-500 h-2.5 transition-all duration-300 rounded-full"
+                  style={{ width: `${sprintProgressPercent}%` }}
+                />
+              </div>
+
+              {/* Filter */}
+              <div className="flex space-x-2 text-xs">
+                {["all", "incomplete", "completed"].map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setSprintFilter(filter)}
+                    className={`px-3 py-1.5 rounded-xl font-bold capitalize transition cursor-pointer ${
+                      sprintFilter === filter
+                        ? "bg-amber-500 text-slate-950"
+                        : "bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800"
+                    }`}
+                  >
+                    {filter}
+                  </button>
+                ))}
+              </div>
+
+              {/* 10 Days List */}
+              <div className="space-y-3">
+                {filteredTasks.map((t) => (
+                  <div
+                    key={t.id}
+                    className={`p-4 rounded-2xl border transition text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                      t.completed
+                        ? "bg-slate-950/60 border-slate-800/60 opacity-80"
+                        : "bg-slate-950 border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => toggleDailyTask(t.id)}
+                        className="mt-0.5 cursor-pointer text-slate-400 hover:text-emerald-400 transition"
+                      >
+                        {t.completed ? (
+                          <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        ) : (
+                          <Circle className="w-5 h-5 text-slate-600" />
+                        )}
+                      </button>
+
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`font-extrabold ${t.completed ? "line-through text-slate-500" : "text-slate-100"}`}>
+                            {t.dayTitle}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
+                            {t.phase}
+                          </span>
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                            t.priority === "Critical" ? "bg-rose-950 text-rose-400" : "bg-amber-950 text-amber-400"
+                          }`}>
+                            {t.priority}
+                          </span>
+                        </div>
+                        <p className={`text-[11px] leading-relaxed ${t.completed ? "text-slate-500" : "text-slate-300"}`}>
+                          {t.task}
+                        </p>
+                        <div className="flex flex-wrap gap-3 text-[10px] text-slate-400 pt-1">
+                          <span>⏱ Time: <strong className="text-slate-300">{t.timeEst}</strong></span>
+                          <span>💰 Budget: <strong className="text-slate-300">{t.budgetEst}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
                     <button
                       type="button"
                       onClick={() => handleConsultDailyTaskAI(t)}
-                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1 cursor-pointer"
+                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3.5 py-2 rounded-xl font-bold flex items-center justify-center space-x-1.5 self-end sm:self-center transition cursor-pointer"
                     >
                       <Bot className="w-3.5 h-3.5" />
-                      <span>AI SOP</span>
+                      <span>AI Field SOP 🤖</span>
                     </button>
                   </div>
                 ))}
               </div>
             </div>
 
+            {/* SOP ADVICE MODAL */}
             {taskAdviceModal && (
-              <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
-                  <button type="button" onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
-                  <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
-                  <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
-                    {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setTaskAdviceModal(null)}
+                    className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                  <div className="border-b border-slate-800 pb-2">
+                    <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
+                      Field Execution SOP
+                    </span>
+                    <h3 className="font-extrabold text-slate-100 text-base mt-1">{taskAdviceModal.title}</h3>
+                  </div>
+
+                  <div className="whitespace-pre-line text-slate-300 leading-relaxed font-sans">
+                    {isLoadingTaskAdvice ? (
+                      <div className="py-12 text-center space-y-2">
+                        <RefreshCw className="w-6 h-6 animate-spin text-amber-400 mx-auto" />
+                        <p className="text-slate-400">Formulating step-by-step field checklists and negotiation scripts...</p>
+                      </div>
+                    ) : (
+                      taskAdviceModal.sopText
+                    )}
+                  </div>
+
+                  <div className="pt-3 border-t border-slate-800 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setTaskAdviceModal(null)}
+                      className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs cursor-pointer"
+                    >
+                      Understood & Ready to Execute
+                    </button>
                   </div>
                 </div>
               </div>
@@ -2186,13 +2736,16 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 5: CALCULATORS */}
+        {/* ========================================================= */}
+        {/* TAB 5: CALCULATORS & DAILY LEDGER                         */}
+        {/* ========================================================= */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
+              {/* Profit Margin Doctor */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h3 className="font-bold text-slate-100 text-sm">Unit Profit & Margin Doctor</h3>
                   <button
                     type="button"
                     onClick={handleRunMarginDoctorAI}
@@ -2200,9 +2753,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
                   >
                     <Bot className="w-3.5 h-3.5" />
-                    <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Price Audit"}</span>
+                    <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Margin Audit"}</span>
                   </button>
                 </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-slate-400 block mb-1">Cost Price (₹)</label>
@@ -2212,11 +2766,21 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <label className="text-slate-400 block mb-1">Selling Price (₹)</label>
                     <input type="number" value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
                   </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Packaging / Shipping (₹)</label>
+                    <input type="number" value={shippingCost} onChange={(e) => setShippingCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Applicable GST (%)</label>
+                    <input type="number" value={gstPercent} onChange={(e) => setGstPercent(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                  <div>Net Profit: <strong className="text-emerald-400">₹{netProfitUnit.toFixed(1)}</strong></div>
-                  <div>Margin: <strong className="text-amber-400">{netMarginPercent}%</strong></div>
+
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex justify-between">
+                  <div>Net Profit/Unit: <strong className="text-emerald-400 font-bold">₹{netProfitUnit.toFixed(1)}</strong></div>
+                  <div>Net Margin: <strong className="text-amber-400 font-bold">{netMarginPercent}%</strong></div>
                 </div>
+
                 {aiMarginAnalysis && (
                   <div className="bg-amber-950/20 border border-amber-500/30 p-3 rounded-xl text-xs text-amber-200">
                     {aiMarginAnalysis}
@@ -2224,26 +2788,34 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 )}
               </div>
 
-              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
-                <h3 className="font-bold text-slate-100 text-sm">Break-Even Calculator</h3>
+              {/* Break-Even Units */}
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Break-Even Volume Calculator</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-slate-400 block mb-1">Overhead/mo (₹)</label>
+                    <label className="text-slate-400 block mb-1">Monthly Overhead (Rent+Salaries ₹)</label>
                     <input type="number" value={monthlyOverhead} onChange={(e) => setMonthlyOverhead(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
                   </div>
                   <div>
-                    <label className="text-slate-400 block mb-1">Variable Cost/unit (₹)</label>
+                    <label className="text-slate-400 block mb-1">Selling Revenue/Unit (₹)</label>
+                    <input type="number" value={unitRevenue} onChange={(e) => setUnitRevenue(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-slate-400 block mb-1">Variable Direct Cost/Unit (₹)</label>
                     <input type="number" value={unitVariableCost} onChange={(e) => setUnitVariableCost(e.target.value)} className="w-full bg-slate-950 border border-slate-700 p-2 rounded-xl text-slate-100" />
                   </div>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl flex justify-between">
-                  <div>Required Volume: <strong className="text-emerald-400">{breakEvenUnitsNeeded} Units/mo</strong></div>
+
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex justify-between">
+                  <div>Contribution/Unit: <strong className="text-slate-200">₹{unitContribution}</strong></div>
+                  <div>Volume Needed: <strong className="text-emerald-400 font-bold">{breakEvenUnitsNeeded} Units/mo</strong></div>
                 </div>
               </div>
             </div>
 
+            {/* Daily Cashflow & Udhaar Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                 <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
                   <IndianRupee className="w-5 h-5 text-amber-400" />
                   <span>Daily Cashflow & Udhaar Ledger</span>
@@ -2277,7 +2849,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   placeholder="Amount (₹)"
                   value={ledgerAmount}
                   onChange={(e) => setLedgerAmount(e.target.value)}
-                  className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                  className="sm:col-span-3 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                 />
                 <select
                   value={ledgerType}
@@ -2314,7 +2886,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
           </div>
         )}
 
-        {/* TAB 6: LIVE AI MARKET RADAR */}
+        {/* ========================================================= */}
+        {/* TAB 6: LIVE AI MARKET RADAR                               */}
+        {/* ========================================================= */}
         {activeTab === "market" && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
@@ -2323,6 +2897,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <BookOpen className="w-5 h-5 text-amber-400" />
                   <span>Live Indian SME Market Radar</span>
                 </h2>
+                <p className="text-xs text-slate-400 mt-1">Real-time alerts on ONDC logistics, GST mandates, and APMC wholesale shifts.</p>
               </div>
               <button
                 type="button"
@@ -2337,7 +2912,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {marketTrends.map((t, idx) => (
-                <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
+                <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3 shadow-lg">
                   <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">
                     {t.tag}
                   </span>
@@ -2348,23 +2923,88 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             </div>
           </div>
         )}
+
+        {/* ========================================================= */}
+        {/* TAB: ADMIN WORKS (Visible only to Admin)                   */}
+        {/* ========================================================= */}
+        {activeTab === "admin-works" && isAdminUser && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
+              <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
+                <Crown className="w-4 h-4" />
+                <span>Executive Administrative Workspace</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
+                Payment Approvals & User Access Management (MongoDB)
+              </h1>
+            </div>
+
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="font-bold text-slate-100 text-base">Transactions Submitted ({submittedTxns.length})</h3>
+                <button
+                  type="button"
+                  onClick={() => fetchDbData(currentUser)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg text-xs flex items-center space-x-1 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Sync DB</span>
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {submittedTxns.length === 0 ? (
+                  <div className="text-slate-500 text-xs py-4 text-center">No submissions yet.</div>
+                ) : (
+                  submittedTxns.map((txn) => (
+                    <div key={txn._id || txn.id || txn.paymentId} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
+                      <div>
+                        <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
+                        <div className="text-slate-400">{txn.userEmail} • {txn.plan}</div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        {txn.status !== "approved" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApproveTxn(txn)}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1 rounded-lg cursor-pointer"
+                          >
+                            Approve Pro
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminRevokeTxn(txn)}
+                            className="bg-rose-950 text-rose-400 border border-rose-500/40 font-bold px-3 py-1 rounded-lg cursor-pointer"
+                          >
+                            Revoke Pro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
-      {/* FOOTER WITH LEGAL LINKS */}
+      {/* FOOTER */}
       <footer className="border-t border-slate-800 bg-slate-900/60 py-6 text-xs text-slate-400 mt-auto">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-center sm:text-left">
             <p className="font-bold text-slate-200">BizNavigator 🇮🇳</p>
-            <p className="text-[11px] text-slate-500">AI-Powered Strategic Business Roadmap & Evaluation Platform</p>
+            <p className="text-[11px] text-slate-500">India's SME Strategic Roadmap & Launch Platform</p>
           </div>
           <div className="flex flex-wrap justify-center gap-4 text-xs font-medium">
-            <button type="button" onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 transition cursor-pointer">Terms of Service</button>
+            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">Terms of Service</button>
             <span>•</span>
-            <button type="button" onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 transition cursor-pointer">Privacy Policy</button>
+            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">Privacy Policy</button>
             <span>•</span>
-            <button type="button" onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 transition cursor-pointer">Refund & Cancellation</button>
+            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">Refund Policy</button>
             <span>•</span>
-            <button type="button" onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 transition cursor-pointer">Contact & Support</button>
+            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">Contact & Support</button>
           </div>
         </div>
       </footer>
@@ -2425,7 +3065,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         )}
       </div>
 
-      {/* SUBSCRIPTION MODAL */}
+      {/* SUBSCRIPTION PAYWALL MODAL */}
       {showPaywallModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
@@ -2508,7 +3148,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* STRICT PAYMENT VERIFICATION MODAL */}
+      {/* PAYMENT VERIFICATION MODAL */}
       {showVerificationModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
@@ -2520,7 +3160,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
                 <ShieldCheck className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-100">Strict Payment Verification</h3>
+              <h3 className="text-lg font-bold text-slate-100">Payment Verification</h3>
               <p className="text-xs text-slate-400">
                 Provide your official <strong>Razorpay Payment ID</strong> (starts with <code>pay_</code>).
               </p>
@@ -2571,88 +3211,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ADMINISTRATIVE WORKS MODAL */}
-      {showAdminConsoleModal && isAdminUser && (
-        <div className="fixed inset-0 bg-slate-950/85 z-[100] flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-2xl w-full space-y-4 text-xs">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-              <h3 className="font-bold text-slate-100 text-sm">Administrative Works Console (MongoDB)</h3>
-              <button type="button" onClick={() => setShowAdminConsoleModal(false)} className="cursor-pointer">
-                <X className="w-5 h-5 text-slate-400" />
-              </button>
-            </div>
-
-            <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
-              <button
-                type="button"
-                onClick={() => setAdminConsoleTab("txns")}
-                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "txns" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
-              >
-                Transactions ({submittedTxns.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setAdminConsoleTab("users")}
-                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "users" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
-              >
-                Users ({registeredUsersList.length})
-              </button>
-            </div>
-
-            {adminConsoleTab === "txns" ? (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {submittedTxns.map((txn) => (
-                  <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                      <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      {txn.status !== "approved" ? (
-                        <button
-                          type="button"
-                          onClick={() => handleAdminApproveTxn(txn)}
-                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-lg font-bold cursor-pointer"
-                        >
-                          Approve Pro
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => handleAdminRevokeTxn(txn)}
-                          className="bg-rose-950 border border-rose-500/40 text-rose-400 px-3 py-1 rounded-lg font-bold cursor-pointer"
-                        >
-                          Revoke
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-80 overflow-y-auto">
-                {registeredUsersList.map((u, i) => (
-                  <div key={u._id || i} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                    <div>
-                      <div className="font-bold text-slate-200">{u.name}</div>
-                      <div className="text-slate-400 text-[11px]">{u.emailOrPhone}</div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleAdminToggleUserPro(u.emailOrPhone)}
-                      className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${u.isProUser ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}
-                    >
-                      {u.isProUser ? "Pro Active (Revoke)" : "Grant Pro"}
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* LEGAL POLICIES MODAL (POPUP) */}
+      {/* LEGAL POLICIES MODAL */}
       {legalModalType && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
@@ -2671,19 +3230,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   Terms of Service & AI Disclaimer
                 </h2>
                 <p className="text-slate-400">Last updated: October 2026</p>
-
                 <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
-                  <strong>⚠️ Mandatory Financial & Legal Disclaimer:</strong> BizNavigator provides AI-driven business feasibility estimations, financial calculators, and market insights for <strong>educational and informational purposes only</strong>. We do not provide statutory chartered accountancy, legal advisory, or guaranteed profit assurances. Actual business outcomes vary by execution, regional licensing, and market volatility.
+                  <strong>⚠️ Statutory Disclaimer:</strong> BizNavigator provides AI-driven business feasibility calculations for educational and planning purposes only. We do not provide chartered accountancy, formal audit guarantees, or statutory legal council.
                 </div>
-
-                <h3 className="font-bold text-slate-100 text-sm mt-3">1. Account Security & Fair Usage</h3>
-                <p>Users are responsible for safeguarding their login credentials. Any automated abuse, excessive scraping, or sharing of Pro memberships across unauthorized third parties will lead to permanent account suspension without notice.</p>
-
-                <h3 className="font-bold text-slate-100 text-sm mt-3">2. Intellectual Property</h3>
-                <p>The proprietary algorithms, branding, custom UI, and system design of BizNavigator remain the exclusive property of BizNavigator Headquarters.</p>
-
-                <h3 className="font-bold text-slate-100 text-sm mt-3">3. Governing Law</h3>
-                <p>These terms are governed by the laws of India. Any legal dispute or claims arising out of services shall be subject to the exclusive jurisdiction of the competent courts in New Delhi, India.</p>
               </div>
             )}
 
@@ -2691,18 +3240,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
                 <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  Privacy Policy (DPDP Act 2023 Compliant)
+                  Privacy Policy (DPDP Act Compliant)
                 </h2>
-                <p className="text-slate-400">Last updated: October 2026</p>
-
-                <h3 className="font-bold text-slate-100 text-sm">1. Data We Collect</h3>
-                <p>We collect your Name, Email address, Business name, and hashed passwords solely for profile management, authentication, and secure OTP verification via transactional email services.</p>
-
-                <h3 className="font-bold text-slate-100 text-sm">2. Payment & Banking Data</h3>
-                <p>BizNavigator <strong>never stores</strong> your Credit/Debit Card numbers, UPI PIN, or Netbanking passwords. All monetary transactions are processed through end-to-end encrypted gateways governed by the Reserve Bank of India (RBI).</p>
-
-                <h3 className="font-bold text-slate-100 text-sm">3. Zero Third-Party Selling</h3>
-                <p>We do not rent, monetize, or sell your personal credentials or business ideas to third-party advertising brokers. Your database records are strictly isolated in encrypted cloud clusters.</p>
+                <p>We collect and secure basic credentials strictly for account authentication and transactional alerts. No credentials or business ideas are monetized or sold to third parties.</p>
               </div>
             )}
 
@@ -2712,13 +3252,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <IndianRupee className="w-5 h-5 text-sky-400" />
                   Refund & Cancellation Policy
                 </h2>
-                <p className="text-slate-400">Last updated: October 2026</p>
-
-                <h3 className="font-bold text-slate-100 text-sm">1. Digital SaaS Deliverables</h3>
-                <p>BizNavigator provides on-demand, instant digital services (AI-generated business plans, financial projections, and database access). Because compute resources and AI generations are provisioned immediately upon purchase, <strong>Day Pass (₹49), Monthly Pro (₹249), and Quarterly Pro (₹599) plans are strictly non-refundable</strong> once activated.</p>
-
-                <h3 className="font-bold text-slate-100 text-sm">2. Accidental Duplicate Payments</h3>
-                <p>If a technical glitch causes duplicate deductions for the same plan, users can email our support team with both Razorpay Payment IDs within 48 hours. Upon verification, the duplicate charge will be credited back to the original payment source within 5 to 7 working days.</p>
+                <p>Digital subscriptions provision AI compute instances on demand and are non-refundable upon activation. In cases of duplicate charges, email admin@biznavigator.in with Razorpay Payment IDs within 48 hours for full refund processing.</p>
               </div>
             )}
 
@@ -2726,16 +3260,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
                 <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
                   <Mail className="w-5 h-5 text-amber-400" />
-                  Customer Care & Grievance Redressal
+                  Contact & Support
                 </h2>
-                <p>For transaction verification queries, operational issues, or partnership proposals, reach out to our team:</p>
-
-                <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl space-y-2 font-mono text-[11px]">
-                  <p><strong className="text-slate-400">Entity:</strong> BizNavigator</p>
-                  <p><strong className="text-slate-400">Support Email:</strong> admin@biznavigator.in</p>
-                  <p><strong className="text-slate-400">Operating Base:</strong> Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
-                  <p><strong className="text-slate-400">Turnaround Time:</strong> Monday to Saturday (10:00 AM – 7:00 PM IST). Inquiries are resolved within 24–48 hours.</p>
-                </div>
+                <p>Support Email: <strong>admin@biznavigator.in</strong></p>
+                <p>Operational Headquarters: Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
               </div>
             )}
 
