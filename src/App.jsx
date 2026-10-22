@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Briefcase,
   TrendingUp,
@@ -49,11 +48,11 @@ import {
   Gauge,
   Eye,
   EyeOff,
-  ChevronRight,
   AlertCircle,
   Truck,
   Store,
-  Percent
+  Percent,
+  Database
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
@@ -194,7 +193,7 @@ const INITIAL_10_DAY_SPRINT = [
   }
 ];
 
-// --- TOP-LEVEL HELPER FUNCTIONS ---
+// --- HELPER FUNCTIONS ---
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
   try {
@@ -258,15 +257,21 @@ export default function BizNavigatorApp() {
   const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
   const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
-  // Subscriptions & Users
-  const [submittedTxns, setSubmittedTxns] = useState(() => safeGetStorage(`${STORAGE_PREFIX}all_txns`, []));
-  const [registeredUsersList, setRegisteredUsersList] = useState(() => safeGetStorage(`${STORAGE_PREFIX}registered_users`, []));
+  // Direct MongoDB Database States
+  const [submittedTxns, setSubmittedTxns] = useState([]);
+  const [registeredUsersList, setRegisteredUsersList] = useState([]);
+  const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
+  const [adminDbError, setAdminDbError] = useState("");
+  const [adminDbSuccess, setAdminDbSuccess] = useState("");
+  const [adminSubTab, setAdminSubTab] = useState("txns");
+  const [txnFilterStatus, setTxnFilterStatus] = useState("all");
+  const [manualGrantEmail, setManualGrantEmail] = useState("");
+  const [manualGrantPlan, setManualGrantPlan] = useState("Monthly Pro (₹249)");
+  const [isExecutingAdminAction, setIsExecutingAdminAction] = useState(false);
 
-  // Modals
+  // Modals & Panels
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
-  const [adminConsoleTab, setAdminConsoleTab] = useState("txns");
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
   const [inputPaymentId, setInputPaymentId] = useState("");
   const [verificationError, setVerificationError] = useState("");
@@ -284,26 +289,21 @@ export default function BizNavigatorApp() {
   // Navigation
   const [activeTab, setActiveTab] = useState(() => {
     const user = safeGetStorage(`${STORAGE_PREFIX}user`, null);
-    if (user?.role?.toLowerCase() === "admin") return "admin-works";
+    if (user?.role?.toLowerCase() === "admin" || user?.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      return "admin-works";
+    }
     return "idea-finder";
   });
 
   const [lastAiError, setLastAiError] = useState("");
 
-  const isAdminUser = Boolean(currentUser?.role?.toLowerCase() === "admin");
-  const isUserPro = Boolean(
+  const isAdminUser = Boolean(
     currentUser && (
-      isAdminUser ||
-      currentUser.isProUser === true ||
-      submittedTxns.some(
-        (t) =>
-          t.userEmail?.toLowerCase() === currentUser.emailOrPhone?.toLowerCase() &&
-          t.status === "approved"
-      )
+      currentUser.role?.toLowerCase() === "admin" ||
+      currentUser.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
     )
   );
-
-  // Evaluation Countdown logic
+  const isUserPro = Boolean(currentUser && (isAdminUser || currentUser.isProUser === true));
   const evaluationsCount = Math.max(0, Number(currentUser?.evaluationsCount) || 0);
   const remainingEvaluations = Math.max(0, FREE_USAGE_LIMIT - evaluationsCount);
 
@@ -322,37 +322,53 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // Sync DB records
-  const fetchDbData = async (userParam = currentUser) => {
+  // Sync DB records directly from MongoDB
+  const syncDatabaseData = useCallback(async () => {
+    if (!currentUser) return;
+    setIsAdminDataLoading(true);
+    setAdminDbError("");
     try {
+      const profileRes = await fetch(`${API_BASE_URL}/users/profile?email=${encodeURIComponent(currentUser.emailOrPhone)}`);
+      if (profileRes.ok) {
+        const freshUser = await profileRes.json();
+        if (freshUser && freshUser.emailOrPhone) {
+          setCurrentUser((prev) => ({
+            ...prev,
+            ...freshUser,
+            evaluationsCount: Number(freshUser.evaluationsCount) || 0
+          }));
+        }
+      }
+
       const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
       if (txnsRes.ok) {
         const txns = await txnsRes.json();
         if (Array.isArray(txns)) {
           setSubmittedTxns(txns);
-          localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(txns));
         }
       }
-    } catch (err) {}
 
-    const targetUser = userParam || currentUser;
-    if (targetUser?.role?.toLowerCase() === "admin") {
-      try {
+      if (isAdminUser) {
         const usersRes = await fetch(`${API_BASE_URL}/admin/users`);
         if (usersRes.ok) {
           const users = await usersRes.json();
           if (Array.isArray(users)) {
             setRegisteredUsersList(users);
-            localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(users));
           }
         }
-      } catch (err) {}
+      }
+    } catch (err) {
+      setAdminDbError(err.message || "Database connection error.");
+    } finally {
+      setIsAdminDataLoading(false);
     }
-  };
+  }, [currentUser, isAdminUser]);
 
   useEffect(() => {
-    if (currentUser) fetchDbData(currentUser);
-  }, [currentUser]);
+    if (currentUser) {
+      syncDatabaseData();
+    }
+  }, [currentUser, syncDatabaseData]);
 
   // Timers
   useEffect(() => {
@@ -367,36 +383,25 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupOtpSecondsLeft]);
 
-  // ==========================================
-  // USAGE RECORDING & COUNTDOWN LOGIC
-  // ==========================================
-  const recordEvaluationUsage = () => {
+  // Usage Recording Logic
+  const recordEvaluationUsage = async () => {
     if (isAdminUser || isUserPro) return;
-
-    setCurrentUser((prev) => {
-      if (!prev) return prev;
-      const currentVal = Number(prev.evaluationsCount) || 0;
-      const nextCount = Math.min(FREE_USAGE_LIMIT, currentVal + 1);
-      const updated = {
-        ...prev,
-        evaluationsCount: nextCount
-      };
-      try {
-        localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(updated));
-      } catch (e) {}
-      return updated;
-    });
-
-    if (currentUser?.emailOrPhone) {
-      fetch(`${API_BASE_URL}/users/usage`, {
+    try {
+      const res = await fetch(`${API_BASE_URL}/users/usage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-      }).catch(() => {});
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const serverCount = Number(data.evaluationsCount) || (evaluationsCount + 1);
+        setCurrentUser((prev) => ({ ...prev, evaluationsCount: serverCount }));
+      }
+    } catch (e) {
+      setCurrentUser((prev) => ({ ...prev, evaluationsCount: Math.min(FREE_USAGE_LIMIT, (Number(prev?.evaluationsCount) || 0) + 1) }));
     }
   };
 
-  // Helper check before any evaluation run
   const canPerformEvaluation = () => {
     if (isAdminUser || isUserPro) return true;
     if (remainingEvaluations <= 0) {
@@ -406,9 +411,150 @@ export default function BizNavigatorApp() {
     return true;
   };
 
-  // ==========================================
-  // AUTH HANDLERS
-  // ==========================================
+  // Direct MongoDB Admin CRUD
+  const handleAdminApproveTxn = async (txn) => {
+    const txnId = txn._id || txn.id;
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          txnId: txnId,
+          paymentId: txn.paymentId,
+          userEmail: txn.userEmail,
+          status: "approved"
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update subscription in MongoDB.");
+      setAdminDbSuccess(`Transaction ${txn.paymentId} APPROVED! ${txn.userEmail} Pro activated.`);
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  const handleAdminRevokeTxn = async (txn) => {
+    const txnId = txn._id || txn.id;
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          txnId: txnId,
+          paymentId: txn.paymentId,
+          userEmail: txn.userEmail,
+          status: "rejected"
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to revoke status in MongoDB.");
+      setAdminDbSuccess(`Transaction ${txn.paymentId} marked REJECTED.`);
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  const handleAdminToggleUserPro = async (userEmail, currentProStatus) => {
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: userEmail, isProUser: !currentProStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update user in MongoDB.");
+      setAdminDbSuccess(`MongoDB Updated: ${userEmail} Pro is now ${!currentProStatus ? "ACTIVE" : "INACTIVE"}.`);
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  const handleAdminResetEvaluations = async (userEmail) => {
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/reset-evaluations`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: userEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to reset evaluation count in MongoDB.");
+      setAdminDbSuccess(`MongoDB Updated: Reset free evaluations to 0/5 for ${userEmail}.`);
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  const handleAdminDeleteUser = async (userEmail) => {
+    if (!window.confirm(`Permanently delete user ${userEmail} from MongoDB?`)) return;
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/delete-user`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: userEmail })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to delete user document from MongoDB.");
+      setAdminDbSuccess(`User ${userEmail} deleted from MongoDB.`);
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  const handleAdminManualGrant = async (e) => {
+    e.preventDefault();
+    if (!manualGrantEmail.trim()) return;
+    setIsExecutingAdminAction(true);
+    setAdminDbError("");
+    setAdminDbSuccess("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/grant-pro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: manualGrantEmail.trim(), plan: manualGrantPlan })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to grant Pro in MongoDB.");
+      setAdminDbSuccess(`Granted ${manualGrantPlan} to ${manualGrantEmail} in MongoDB.`);
+      setManualGrantEmail("");
+      await syncDatabaseData();
+    } catch (err) {
+      setAdminDbError(`MongoDB Error: ${err.message}`);
+    } finally {
+      setIsExecutingAdminAction(false);
+    }
+  };
+
+  // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -418,7 +564,7 @@ export default function BizNavigatorApp() {
     const isAdminRequest =
       authMode === "admin" ||
       authEmailOrPhone.trim().toLowerCase() === "admin" ||
-      authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL;
+      authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
     const emailToSend = isAdminRequest ? ADMIN_EMAIL : authEmailOrPhone.trim();
 
@@ -438,16 +584,15 @@ export default function BizNavigatorApp() {
 
       const loggedInUser = {
         ...data.user,
+        role: isAdminRequest ? "admin" : data.user?.role || "user",
         evaluationsCount: Number(data.user.evaluationsCount) || 0
       };
 
       setCurrentUser(loggedInUser);
-      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(loggedInUser));
       setAuthPassword("");
 
-      if (loggedInUser?.role?.toLowerCase() === "admin") {
+      if (isAdminRequest || loggedInUser?.role?.toLowerCase() === "admin") {
         setActiveTab("admin-works");
-        fetchDbData(loggedInUser);
       } else {
         setActiveTab("idea-finder");
       }
@@ -467,7 +612,6 @@ export default function BizNavigatorApp() {
       setAuthError("Please fill in all mandatory fields.");
       return;
     }
-
     if (authPassword.trim().length < 4) {
       setAuthError("Password must be at least 4 characters long.");
       return;
@@ -508,7 +652,6 @@ export default function BizNavigatorApp() {
       setAuthError("OTP code has expired. Please request a new verification code.");
       return;
     }
-
     if (!signupEnteredOtp || signupEnteredOtp.trim().length !== 6) {
       setAuthError("Please enter the complete 6-digit OTP code received in your email.");
       return;
@@ -534,7 +677,6 @@ export default function BizNavigatorApp() {
       };
 
       setCurrentUser(registeredUser);
-      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(registeredUser));
       setAuthPassword("");
       setSignupEnteredOtp("");
       setSignupStep(1);
@@ -628,18 +770,14 @@ export default function BizNavigatorApp() {
       setCurrentUser(null);
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
       setActiveTab("idea-finder");
-      setShowAdminConsoleModal(false);
     }
   };
 
-  // ==========================================
-  // GEMINI AI CALLER
-  // ==========================================
+  // Gemini AI Caller
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
     setLastAiError("");
 
-    // 1. Try Backend Proxy
     try {
       const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
         method: "POST",
@@ -662,7 +800,6 @@ export default function BizNavigatorApp() {
       }
     } catch (err) {}
 
-    // 2. Direct Gemini Fallback
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
@@ -689,13 +826,47 @@ export default function BizNavigatorApp() {
         } catch (e) {}
       }
     }
-
     return null;
   };
 
-  // ==========================================
-  // TAB 1: 6-INPUT AI IDEA MATCHER + DEEP ANALYSIS
-  // ==========================================
+  const handleSubmitVerification = async (e) => {
+    e.preventDefault();
+    setVerificationError("");
+
+    const cleanId = inputPaymentId.trim();
+    if (!/^pay_[a-zA-Z0-9]{12,24}$/.test(cleanId)) {
+      setVerificationError("Invalid Razorpay ID format! Must start with 'pay_'.");
+      return;
+    }
+
+    setIsVerifying(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          paymentId: cleanId,
+          userEmail: currentUser?.emailOrPhone,
+          userName: currentUser?.name,
+          plan: selectedPlanForVerification
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Submission failed.");
+
+      await syncDatabaseData();
+      setShowVerificationModal(false);
+      setInputPaymentId("");
+      alert(`Payment ID ${cleanId} successfully saved to MongoDB!\nStatus: PENDING ADMIN APPROVAL.`);
+    } catch (err) {
+      setVerificationError(err.message);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  // Tab 1: AI Matcher & Deep Analysis
   const [finderBudget, setFinderBudget] = useState("150000");
   const [finderLocation, setFinderLocation] = useState("Bengaluru (Koramangala / HSR Corridor)");
   const [finderSkills, setFinderSkills] = useState("Direct Sales, Food Preparation, Digital Marketing");
@@ -708,7 +879,6 @@ export default function BizNavigatorApp() {
   const handleGenerateIdeas = async (e) => {
     e.preventDefault();
     if (!canPerformEvaluation()) return;
-
     setIsFindingIdeas(true);
     setLastAiError("");
 
@@ -722,7 +892,6 @@ Generate 5 DISTINCT, CREATIVE, HIGHLY VIABLE Indian business ideas tailored spec
 5. Working Time: ${finderTime}
 6. Risk Tolerance: ${finderRisk}
 
-Evaluate all 6 inputs together for Indian commercial reality.
 Return ONLY valid JSON matching this schema:
 {
   "ideas": [
@@ -732,11 +901,11 @@ Return ONLY valid JSON matching this schema:
       "tagline": "Catchy 1-line business pitch",
       "category": "Retail F&B / B2B Supply / D2C / Micro-Services / Manufacturing",
       "matchScore": 95,
-      "whyFit": "Direct explanation of why this matches their ${finderSkills} skills, ₹${finderBudget} budget, ${finderTime} schedule, and ${finderRisk} appetite in ${finderLocation}.",
-      "estimatedCapex": "₹${Math.round(parseInt(finderBudget) * 0.65).toLocaleString('en-IN')}",
+      "whyFit": "Direct explanation of why this matches their skills, budget, schedule, and risk appetite.",
+      "estimatedCapex": "₹95,000",
       "monthlyPotential": "₹40,000 - ₹85,000 net profit",
-      "targetAudience": "Target customer segment in ${finderLocation}",
-      "firstStep": "Tangible Day 1 launch action in India"
+      "targetAudience": "Target customer segment",
+      "firstStep": "Tangible Day 1 launch action"
     }
   ]
 }`;
@@ -792,7 +961,7 @@ Return ONLY valid JSON matching this schema:
           },
           {
             id: `dyn_4_${Date.now()}`,
-            title: `${cleanSkill}-Powered SME Marketing & Operations Agency`,
+            title: `${cleanSkill}-Powered SME Marketing Agency`,
             tagline: `Helping small high-street retailers in ${cleanLoc} digitize orders, Google Maps, and soundboxes.`,
             category: "Asset-Light Services",
             matchScore: 87,
@@ -819,9 +988,7 @@ Return ONLY valid JSON matching this schema:
         setMatchedIdeas(dynamicSynthesis);
         localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(dynamicSynthesis));
       }
-
-      // Decrement countdown by 1
-      recordEvaluationUsage();
+      await recordEvaluationUsage();
     } catch (err) {
       setLastAiError(err.message || "Failed to generate ideas.");
     } finally {
@@ -829,10 +996,8 @@ Return ONLY valid JSON matching this schema:
     }
   };
 
-  // ONE-CLICK DEEP ANALYSIS
   const handleOpenDeepAnalysis = async (idea) => {
     if (!canPerformEvaluation()) return;
-
     setDeepAnalysisIdea(idea);
     setIsLoadingDeepAnalysis(true);
     setDeepAnalysisData(null);
@@ -855,20 +1020,20 @@ Return ONLY valid JSON matching this exact structure:
     "netMarginPerUnit": "₹125 (50% net profit)"
   },
   "breakEvenAnalysis": {
-    "estimatedMonthlyFixedCost": "₹32,000 (Rent ₹18k, Power/WiFi ₹4k, Staff ₹10k)",
+    "estimatedMonthlyFixedCost": "₹32,000",
     "dailyUnitsRequiredToBreakEven": "9 units per day",
-    "comfortableProfitTargetVolume": "25-35 units per day (generates ₹70k+ profit/mo)",
+    "comfortableProfitTargetVolume": "25-35 units per day",
     "timeToBreakEven": "3 to 4 Months"
   },
   "customerArchetype": {
     "persona": "Working Millennial & Tech Professional (Age 22-38)",
-    "conversionTrigger": "Speed of service (< 3 mins), cleanliness, UPI Soundbox instant checkout, and hygienic transparent packaging.",
+    "conversionTrigger": "Speed of service (< 3 mins), cleanliness, UPI Soundbox instant checkout.",
     "repeatPurchaseRate": "3 to 4 times per week"
   },
   "supplyChainSourcingGuide": {
     "primaryPlatforms": "IndiaMART (Direct verification), APMC Local Wholesale Mandi, Udaan B2B",
     "sourcingLocations": "Local regional industrial zones & APMC market yard in ${city}",
-    "vendorNegotiationRule": "Never commit to 100% upfront cash. Pay 30% advance on sample approval, and balance against bill of lading (B/L) on delivery."
+    "vendorNegotiationRule": "Never commit to 100% upfront cash. Pay 30% advance on sample approval."
   }
 }`;
 
@@ -882,32 +1047,30 @@ Return ONLY valid JSON matching this exact structure:
           unitEconomics: {
             sellingPricePerUnit: "₹250 average ticket size",
             cogsRawMaterials: "₹85 (34% cost of raw goods)",
-            packagingAndConsumables: "₹18 (7% tamper-evident containers & carry-bags)",
+            packagingAndConsumables: "₹18 (7% containers & carry-bags)",
             deliveryOrPlatformFee: "₹18 (7% hyperlocal dispatch)",
-            paymentGatewayAndSoundboxFee: "₹4 (1.6% merchant UPI/card processing)",
+            paymentGatewayAndSoundboxFee: "₹4 (1.6% merchant processing)",
             netMarginPerUnit: "₹125 (50% net contribution margin)"
           },
           breakEvenAnalysis: {
-            estimatedMonthlyFixedCost: "₹35,000 (Kiosk rent ₹20k, power/permits ₹5k, helper ₹10k)",
+            estimatedMonthlyFixedCost: "₹35,000 (Rent ₹20k, utilities ₹5k, staff ₹10k)",
             dailyUnitsRequiredToBreakEven: "10 orders / day to cover all fixed costs",
             comfortableProfitTargetVolume: "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
             timeToBreakEven: "3.5 to 5 Months"
           },
           customerArchetype: {
             persona: "Convenience-seeking daily commuter & young professional",
-            conversionTrigger: "Rapid sub-3 minute service, visible hygiene, UPI Soundbox instant ping, and fresh preparation.",
+            conversionTrigger: "Sub-3 minute turnaround, visible hygiene, UPI Soundbox instant ping.",
             repeatPurchaseRate: "35% - 45% weekly repeat rate"
           },
           supplyChainSourcingGuide: {
             primaryPlatforms: "Local APMC Wholesale Mandi, IndiaMART verified sellers, Udaan B2B",
-            sourcingLocations: `Central trading market and industrial packaging hubs in ${city}`,
-            vendorNegotiationRule: "Offer 50% initial cash + 50% upon delivery inspection. Request 10% volume discount on second recurring invoice."
+            sourcingLocations: `Central trading market in ${city}`,
+            vendorNegotiationRule: "Offer 50% initial cash + 50% upon delivery inspection."
           }
         });
       }
-
-      // Decrement countdown by 1
-      recordEvaluationUsage();
+      await recordEvaluationUsage();
     } catch (err) {
       setLastAiError(err.message || "Failed to complete deep analysis.");
     } finally {
@@ -915,23 +1078,12 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // ==========================================
-  // TAB 2: DEMAND & SUITABILITY-DRIVEN LOCATION SCOUT
-  // ==========================================
-  const [scoutCity, setScoutCity] = useState("Bengaluru");
-  const [scoutConcept, setScoutConcept] = useState("Artisanal Chai & Fresh Snack Kiosk");
-  const [scoutNeeds, setScoutNeeds] = useState("High morning pedestrian footfall, sub-3 min grab-and-go access, compact counter space, high UPI soundbox usage");
-  const [scoutDemographic, setScoutDemographic] = useState("Corporate tech workforce, co-working tenants & daily commuters (Ages 21-38)");
-  const [isScoutingLocations, setIsScoutingLocations] = useState(false);
-  const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout_demand`, null));
-
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
     setInitialCapital(finderBudget);
     setTargetCity(finderLocation);
     setCustomerSegment(idea.targetAudience);
-
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setScoutDemographic(idea.targetAudience || "Daily consumers & commuters in this city");
@@ -939,41 +1091,43 @@ Return ONLY valid JSON matching this exact structure:
     setActiveTab("location-scout");
   };
 
+  // Tab 2: Location Scout
+  const [scoutCity, setScoutCity] = useState("Bengaluru");
+  const [scoutConcept, setScoutConcept] = useState("Artisanal Chai & Fresh Snack Kiosk");
+  const [scoutNeeds, setScoutNeeds] = useState("High morning pedestrian footfall, sub-3 min grab-and-go access, compact counter space, high UPI soundbox usage");
+  const [scoutDemographic, setScoutDemographic] = useState("Corporate tech workforce, co-working tenants & daily commuters (Ages 21-38)");
+  const [isScoutingLocations, setIsScoutingLocations] = useState(false);
+  const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout_demand`, null));
+
   const handleEvaluateLocations = async (e) => {
     e.preventDefault();
     if (!canPerformEvaluation()) return;
-
     setIsScoutingLocations(true);
 
     try {
-      const prompt = `Act as an expert Indian Retail Demographer, Geospatial SME Strategist, and Footfall Demand Analyst.
-Evaluate the MOST SUITABLE micro-locations strictly inside "${scoutCity}" based purely on CONSUMER DEMAND, UNMET LOCAL NEEDS, and OPERATIONAL FIT for this concept:
+      const prompt = `Act as an expert Indian Retail Demographer. Evaluate 3 micro-locations in "${scoutCity}" for:
 Concept: "${scoutConcept}"
-Operational & Placement Needs: "${scoutNeeds}"
-Target Catchment Demographic: "${scoutDemographic}"
+Requirements: "${scoutNeeds}"
+Demographic: "${scoutDemographic}"
 
-DO NOT FOCUS ON RENT OR REAL ESTATE LEASING RATES.
-Focus strictly on: Where is the strongest demand gap? Why does this specific crowd in ${scoutCity} need this thing? Why will it succeed in these exact streets?
-
-Identify 3 REAL, SPECIFIC micro-markets, streets, or junctions in ${scoutCity}.
-Return ONLY valid JSON matching this schema:
+Return ONLY valid JSON:
 {
-  "cityDemandOverview": "2-sentence strategic synthesis of consumer demand patterns and unmet cravings/needs for ${scoutConcept} across ${scoutCity}.",
+  "cityDemandOverview": "2-sentence demand summary.",
   "locations": [
     {
-      "name": "Exact Street / Junction / Commercial Hub Name in ${scoutCity}",
-      "catchmentType": "Corporate Tech Corridor / Metro Transit Node / High-Density Student Hub / Affluent Residential Market",
+      "name": "Street / Junction Name",
+      "catchmentType": "Corporate Tech Corridor / Transit Node",
       "suitabilityScore": 96,
-      "demandIntensity": "Critical Underserved Demand (Supply Gap)",
-      "unmetNeedAnalysis": "Detailed breakdown of what customers in this specific neighborhood are frustrated by and why ${scoutConcept} fulfills an urgent daily need.",
-      "idealPlacementSpot": "Hyper-specific placement advice (e.g., 'Within 30 meters of exit gate #2, directly opposite the main co-working entry lane').",
-      "demandTriggers": "Exact hours and routines when demand surges (e.g., '8:15 AM - 10:45 AM pre-shift rush and 4:30 PM - 7:00 PM tea break').",
-      "competitionVoid": "Why existing alternatives or legacy shops in this zone are failing to satisfy this demand (e.g., poor hygiene, slow billing, outdated menu)."
+      "demandIntensity": "Critical Underserved Demand",
+      "unmetNeedAnalysis": "Detailed local unmet need.",
+      "idealPlacementSpot": "Exact placement spot.",
+      "demandTriggers": "Peak hours.",
+      "competitionVoid": "Why existing alternatives fail."
     }
   ]
 }`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand & Location Feasibility Strategist. Return JSON only.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand Strategist. Return JSON only.");
       const parsed = extractJsonFromText(raw);
 
       if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
@@ -981,46 +1135,34 @@ Return ONLY valid JSON matching this schema:
         localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(parsed));
       } else {
         const fallback = {
-          cityDemandOverview: `In ${scoutCity}, demand for ${scoutConcept} is driven by convenience, speed of service, and visible hygiene. Pockets with dense office transit and youth hubs face severe supply gaps during peak hours.`,
+          cityDemandOverview: `In ${scoutCity}, demand for ${scoutConcept} is driven by convenience, speed of service, and visible hygiene.`,
           locations: [
             {
-              name: `${scoutCity} Outer Ring Road / Primary IT Transit Hub`,
+              name: `${scoutCity} Outer Ring Road / Primary IT Corridor`,
               catchmentType: "Corporate Tech Corridor & Transit Node",
               suitabilityScore: 96,
               demandIntensity: "High Supply Deficit (Severe Peak Hours Squeeze)",
-              unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Existing local options are either unhygienic roadside kiosks or overpriced sit-down cafes. There is zero sub-3 minute hygienic grab-and-go alternative.`,
-              idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the pedestrian morning walkway.",
-              demandTriggers: "8:00 AM – 11:00 AM (Morning breakfast rush) & 4:30 PM – 7:30 PM (Evening transition window).",
-              competitionVoid: "Current vendors suffer from slow cash-only billing, cluttered counters, and inconsistent taste, turning away busy tech workers."
+              unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Zero sub-3 minute hygienic alternatives.`,
+              idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the morning walkway.",
+              demandTriggers: "8:00 AM – 11:00 AM (Morning rush) & 4:30 PM – 7:30 PM (Evening transition).",
+              competitionVoid: "Current vendors suffer from slow billing and cluttered counters."
             },
             {
-              name: `${scoutCity} High-Density Coaching & Student PG Belt`,
-              catchmentType: "Youth, College & Student Residence Hub",
+              name: `${scoutCity} Student Coaching & PG Belt`,
+              catchmentType: "Youth & College Hub",
               suitabilityScore: 91,
-              demandIntensity: "Sustained High Demand (Budget-Conscious Volume)",
-              unmetNeedAnalysis: `Students and young interns in this pocket require quick, fresh, value-for-money sustenance between lectures and study sessions. High frequency of repeat orders (5-6 times per week).`,
-              idealPlacementSpot: "Directly opposite the central study library lane, near main residential PG clusters.",
-              demandTriggers: "11:30 AM – 2:00 PM (Quick midday refuel) & 5:00 PM – 10:00 PM (Post-coaching dinner/snack rush).",
-              competitionVoid: "Nearby legacy eateries have slow turnaround times and uninspiring menus that don't appeal to Gen-Z taste preferences."
-            },
-            {
-              name: `${scoutCity} Metro Connector / Commuter Feeder Junction`,
-              catchmentType: "High-Frequency Intermodal Transit Hub",
-              suitabilityScore: 88,
-              demandIntensity: "Impulse Grab-and-Go Demand",
-              unmetNeedAnalysis: `Pedestrian commuters switching transit modes require immediate, friction-free service. High purchase intent where product visibility and UPI soundbox checkout trigger rapid impulse purchases.`,
-              idealPlacementSpot: "Along the exit escalator descent line or within 25 meters of the public bus feeder stop.",
-              demandTriggers: "8:30 AM – 10:30 AM (Morning outbound rush) & 6:00 PM – 9:00 PM (Inbound evening homecoming).",
-              competitionVoid: "Commuters refuse to cross busy signals; existing stores placed away from direct footpaths miss 80% of footfall traffic."
+              demandIntensity: "Sustained High Demand (Volume Driven)",
+              unmetNeedAnalysis: `Students and young interns require quick, fresh, value-for-money sustenance between lectures.`,
+              idealPlacementSpot: "Directly opposite the central study library lane.",
+              demandTriggers: "11:30 AM – 2:00 PM & 5:00 PM – 10:00 PM.",
+              competitionVoid: "Nearby legacy eateries have slow turnaround times."
             }
           ]
         };
         setScoutResults(fallback);
         localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(fallback));
       }
-
-      // Decrement countdown by 1
-      recordEvaluationUsage();
+      await recordEvaluationUsage();
     } catch (err) {
       setLastAiError(err.message || "Failed to evaluate locations.");
     } finally {
@@ -1028,9 +1170,7 @@ Return ONLY valid JSON matching this schema:
     }
   };
 
-  // ==========================================
-  // TAB 3: BUSINESS EVALUATOR WITH RISK MATRIX
-  // ==========================================
+  // Tab 3: Feasibility & Risk Matrix
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
   const [initialCapital, setInitialCapital] = useState("150000");
@@ -1041,7 +1181,6 @@ Return ONLY valid JSON matching this schema:
   const handleEvaluateIdea = async (e) => {
     e.preventDefault();
     if (!canPerformEvaluation()) return;
-
     setIsAnalyzing(true);
 
     try {
@@ -1051,52 +1190,34 @@ City/Location: ${targetCity}
 Capital: ₹${initialCapital}
 Customer Segment: ${customerSegment}
 
-Return ONLY valid JSON matching this exact structure:
+Return ONLY valid JSON matching this schema:
 {
   "viabilityScore": 8.7,
   "competitionScore": 7.2,
-  "summary": "2-sentence strategic feasibility audit in ${targetCity}.",
+  "summary": "2-sentence strategic feasibility audit.",
   "estimatedMarginPercent": "38% - 48%",
   "breakEvenMonths": "4 to 6 Months",
   "capex": [
-    {"item": "Machinery, Counters & Dispensing Units", "cost": "₹55,000"},
-    {"item": "Initial Stock & Packaging Inventory", "cost": "₹45,000"},
-    {"item": "Signage, Flex, UPI Soundbox & Store Aesthetics", "cost": "₹20,000"},
-    {"item": "Advance Rent Security Deposit", "cost": "₹30,000"}
+    {"item": "Machinery & Counters", "cost": "₹55,000"},
+    {"item": "Opening Stock", "cost": "₹45,000"}
   ],
   "monthlyOpex": [
-    {"item": "Shop / Kiosk Rent", "cost": "₹20,000"},
-    {"item": "Helper / Operational Staff", "cost": "₹12,000"},
-    {"item": "Electricity, WiFi & Consumables", "cost": "₹6,000"}
+    {"item": "Kiosk Rent", "cost": "₹20,000"},
+    {"item": "Staff Salary", "cost": "₹12,000"}
   ],
-  "licenses": ["MSME Udyam Registration (Free)", "GSTIN Registration (Online)", "FSSAI Food License / Trade Permit"],
+  "licenses": ["MSME Udyam Registration (Free)", "GSTIN Registration", "FSSAI Food License / Trade Permit"],
   "riskMatrix": {
     "udhaarRisk": {
       "level": "Medium",
-      "threat": "Local customers or corporate staff requesting weekly credit tabs ('Khata') that deplete working capital.",
-      "mitigation": "Strict 'Zero-Khata' policy. Incentivize instant UPI checkout with 2% cash discount or automated loyalty soundbox stamps."
+      "threat": "Customers asking for credit tabs ('Khata').",
+      "mitigation": "Strict 'Zero-Khata' policy. Promote instant UPI checkout."
     },
     "seasonalRisk": {
       "level": "High",
-      "threat": "Heavy monsoon rainfall dampening evening pedestrian footfall; post-festival sluggish weeks.",
-      "mitigation": "Partner with Swiggy/Zomato or run direct WhatsApp society delivery on rainy days. Buffer 45-day fixed expenses before monsoon."
+      "threat": "Monsoon downpours reducing walk-in footfall.",
+      "mitigation": "Partner with hyperlocal delivery partners on rainy days."
     },
-    "regulatoryRisk": {
-      "level": "Medium",
-      "threat": "Municipal trade license inspections, hawking encroachment notices, or local health inspector friction.",
-      "mitigation": "Keep printed laminated copies of MSME Udyam, FSSAI certificate, and rent agreement framed on premises at all times."
-    },
-    "supplierRisk": {
-      "level": "High",
-      "threat": "Sudden price hikes in core raw ingredients (dairy, packaging, oils) squeezing gross margins.",
-      "mitigation": "Pre-lock 30-day rates with 2 alternative wholesale suppliers on IndiaMART. Maintain a 15-day non-perishable inventory buffer."
-    },
-    "priceSensitivityRisk": {
-      "level": "Medium",
-      "threat": "Nearby street vendors undercutting prices by 20%.",
-      "mitigation": "Never compete solely on price. Highlight hygiene, branded seal packaging, and consistent taste to justify premium."
-    },
-    "downsideSurvivalPlan": "If revenues are 40% below target in Month 2: immediately cut staff hours to owner-operator, re-negotiate kiosk rent by 15% with landlord, and launch targeted B2B society subscriptions within 48 hours."
+    "downsideSurvivalPlan": "Emergency Protocol: Cut staff hours and pivot to pre-booked corporate catering."
   }
 }`;
 
@@ -1117,50 +1238,33 @@ Return ONLY valid JSON matching this exact structure:
           capex: [
             { item: "Machinery, Setup & Dispensing Units", cost: `₹${Math.round(numCap * 0.38).toLocaleString('en-IN')}` },
             { item: "Opening Raw Stock & Packaging", cost: `₹${Math.round(numCap * 0.32).toLocaleString('en-IN')}` },
-            { item: "Branding, Soundbox & Digital Standees", cost: `₹${Math.round(numCap * 0.12).toLocaleString('en-IN')}` },
+            { item: "Signage & Digital Standees", cost: `₹${Math.round(numCap * 0.12).toLocaleString('en-IN')}` },
             { item: "Working Capital Safety Reserve", cost: `₹${Math.round(numCap * 0.18).toLocaleString('en-IN')}` }
           ],
           monthlyOpex: [
             { item: "Kiosk / Space Rent", cost: "₹18,000 - ₹25,000" },
             { item: "Helper / Operational Staff", cost: "₹12,000" },
-            { item: "Utilities, Soundbox SIM & Sundries", cost: "₹5,500" }
+            { item: "Utilities & Sundries", cost: "₹5,500" }
           ],
           licenses: ["MSME Udyam Registration (Govt Portal - Free)", "GSTIN Registration", "FSSAI Basic Registration / Local Trade Permit"],
           riskMatrix: {
             udhaarRisk: {
               level: "Medium",
-              threat: "Customers requesting delayed credit settlement ('Likh lena'), locking up liquidity.",
-              mitigation: "Install an audible UPI soundbox prominently. Enforce a 100% upfront digital billing standard."
+              threat: "Customers requesting delayed credit settlement ('Likh lena').",
+              mitigation: "Install an audible UPI soundbox prominently. Enforce 100% upfront digital billing."
             },
             seasonalRisk: {
               level: "High",
-              threat: "Monsoon street flooding and post-festival demand dips reducing walk-in footfall.",
-              mitigation: "Setup an automated WhatsApp Broadcast catalog for nearby apartment complexes to sustain rainy-day deliveries."
+              threat: "Monsoon street flooding and post-festival demand dips.",
+              mitigation: "Setup an automated WhatsApp Broadcast catalog for nearby apartment complexes."
             },
-            regulatoryRisk: {
-              level: "Medium",
-              threat: "Unannounced municipal health checks or commercial zoning notices.",
-              mitigation: "Frame the MSME Udyam and FSSAI permit visibly beside the cash counter. Keep rent agreement receipts handy."
-            },
-            supplierRisk: {
-              level: "High",
-              threat: "Input price inflation for key consumables eroding unit profitability.",
-              mitigation: "Maintain accounts with at least two alternative wholesale distributors on IndiaMART."
-            },
-            priceSensitivityRisk: {
-              level: "Medium",
-              threat: "Aggressive price undercutting by informal street vendors.",
-              mitigation: "Emphasize superior hygiene, tamper-evident sealed packaging, and fast sub-2 minute turnaround."
-            },
-            downsideSurvivalPlan: "Emergency Protocol: If Month 2 revenue falls below break-even, transition to owner-operator mode to eliminate staff salary and convert 40% of sales to pre-booked corporate catering."
+            downsideSurvivalPlan: "Emergency Protocol: If Month 2 revenue falls below break-even, transition to owner-operator mode to eliminate staff overhead."
           }
         };
         setAnalysisResult(fallbackAnalysis);
         localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(fallbackAnalysis));
       }
-
-      // Decrement countdown by 1
-      recordEvaluationUsage();
+      await recordEvaluationUsage();
     } catch (err) {
       setLastAiError(err.message || "Failed to evaluate idea.");
     } finally {
@@ -1168,61 +1272,50 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // ==========================================
-  // TAB 4: 10-DAY STEP-BY-STEP LAUNCH SPRINT
-  // ==========================================
+  // Tab 4: 10-Day Sprint
   const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
   const [sprintFilter, setSprintFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
 
-  useEffect(() => {
-    localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(dailySprintTasks));
-  }, [dailySprintTasks]);
-
   const toggleDailyTask = (id) => {
     const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
+    localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(updated));
   };
 
   const resetSprintTasks = () => {
     if (window.confirm("Reset all 10-day tasks to default?")) {
       setDailySprintTasks(INITIAL_10_DAY_SPRINT);
+      localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(INITIAL_10_DAY_SPRINT));
     }
   };
 
   const handleConsultDailyTaskAI = async (taskItem) => {
     setIsLoadingTaskAdvice(true);
-    setTaskAdviceModal({
-      title: taskItem.dayTitle,
-      phase: taskItem.phase,
-      sopText: ""
-    });
+    setTaskAdviceModal({ title: taskItem.dayTitle, phase: taskItem.phase, sopText: "" });
 
     try {
       const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service Venture";
-      const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses.
-Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
+      const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses. Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
 Day & Task: "${taskItem.dayTitle}" - ${taskItem.task}
 Business Context: ${ventureContext}
 Target Budget: ${taskItem.budgetEst} | Time Allocated: ${taskItem.timeEst}
 
 Provide:
-1. EXACT HOURLY CHECKLIST for this day.
-2. VERBATIM NEGOTIATION SCRIPT / DIALOGUE in Hinglish/English (e.g. speaking to landlord, wholesale vendor, or customer).
-3. 2 FATAL GROUND PITFALLS to avoid in India.
-4. VERIFIABLE COMPLETION METRIC before going to bed.`;
+1. Hourly checklist.
+2. Verbatim negotiation dialogue in Hinglish/English.
+3. 2 ground pitfalls to avoid.
+4. Completion metric.`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager. Provide direct, tactical, culturally astute advice.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager.");
       setTaskAdviceModal({
         title: taskItem.dayTitle,
         phase: taskItem.phase,
-        sopText:
-          raw ||
-          `### Checklist for ${taskItem.dayTitle}\n\n1. Arrive at the site or market early (before 10:00 AM) when vendors and authorities are fresh.\n2. **Negotiation Script (Hinglish):**\n"Bhaiya, hum regular monthly bulk order plan kar rahe hain. Pehla sample batch wholesale rate pe dijiye. Agar quality theek rahi toh har hafte repeat order aayega."\n3. **Pitfall:** Never pay 100% advance to an unverified vendor. Pay 30% advance max.\n4. **Completion Metric:** Ensure signed receipt or written WhatsApp confirmation before concluding Day ${taskItem.dayNumber}.`
+        sopText: raw || `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.`
       });
     } catch (err) {
-      setTaskAdviceModal((prev) => prev ? { ...prev, sopText: "Unable to retrieve advice at this moment. Please try again." } : null);
+      setTaskAdviceModal((prev) => prev ? { ...prev, sopText: "Unable to retrieve SOP. Please try again." } : null);
     } finally {
       setIsLoadingTaskAdvice(false);
     }
@@ -1237,9 +1330,7 @@ Provide:
     return true;
   });
 
-  // ==========================================
-  // TAB 5: CALCULATORS & LEDGER
-  // ==========================================
+  // Tab 5: Calculators & Ledger
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -1254,7 +1345,7 @@ Provide:
   const [isAuditingLedger, setIsAuditingLedger] = useState(false);
 
   const [ledgerEntries, setLedgerEntries] = useState(() => safeGetStorage(`${STORAGE_PREFIX}ledger`, [
-    { id: 1, desc: "Packaging Cartons & Sealed Bags Purchase", type: "out", amount: 4500, date: "Today" },
+    { id: 1, desc: "Packaging Cartons & Bags Purchase", type: "out", amount: 4500, date: "Today" },
     { id: 2, desc: "Direct UPI Order Receipts", type: "in", amount: 14200, date: "Today" }
   ]));
   const [ledgerDesc, setLedgerDesc] = useState("");
@@ -1266,14 +1357,11 @@ Provide:
     try {
       const totalCost = Number(costPrice) + Number(shippingCost);
       const netMargin = (((Number(sellingPrice) - totalCost) / Number(sellingPrice)) * 100).toFixed(1);
-
-      const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
-Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD orders, and GST Input Tax Credit (ITC).`;
-
+      const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%. Provide profit buffer & RTO observations.`;
       const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
-      setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 12% RTO return buffer for cash-on-delivery orders, and ensure vendor tax invoices are collected to claim your ${gstPercent}% GST Input Tax Credit.`);
+      setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 10-12% buffer for return-to-origin on cash-on-delivery orders.`);
     } catch (err) {
-      setAiMarginAnalysis("Pricing audit completed. Maintain healthy buffers for unexpected packaging rate changes.");
+      setAiMarginAnalysis("Pricing audit complete. Ensure vendor tax invoices are collected for Input Tax Credit.");
     } finally {
       setIsAnalyzingMargin(false);
     }
@@ -1283,11 +1371,11 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
     setIsAuditingLedger(true);
     try {
       const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
-      const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 specific observations on working capital runway, petty cash leakages, and Udhaar recovery.`;
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.");
-      setAiLedgerAudit(res || "Inflows are consistent. Keep 45 days of fixed expenses untouched in a liquid current account, and convert repeat customers to prepaid digital UPI balances.");
+      const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 observations on working capital and Udhaar control.`;
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor.");
+      setAiLedgerAudit(res || "Inflows are steady. Reconcile soundbox audio receipts at daily closing.");
     } catch (err) {
-      setAiLedgerAudit("Cashflow balance is positive. Reconcile soundbox audio pings daily with merchant bank statement.");
+      setAiLedgerAudit("Cashflow balance is healthy. Keep 30-45 days of fixed expenses in reserve.");
     } finally {
       setIsAuditingLedger(false);
     }
@@ -1304,9 +1392,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
   const unitContribution = Number(unitRevenue) - Number(unitVariableCost);
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
 
-  // ==========================================
-  // TAB 6: LIVE AI MARKET RADAR
-  // ==========================================
+  // Tab 6: Live Market Radar
   const [marketTrends, setMarketTrends] = useState(() => safeGetStorage(`${STORAGE_PREFIX}market_trends`, [
     {
       tag: "Hyperlocal Logistics",
@@ -1329,9 +1415,8 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
   const handleScanLiveMarketAI = async () => {
     setIsScanningMarket(true);
     try {
-      const prompt = `Provide 3 fresh, tactical Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output valid JSON:
+      const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output JSON:
 { "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
-
       const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.");
       const parsed = extractJsonFromText(raw);
       if (parsed?.updates && Array.isArray(parsed.updates)) {
@@ -1344,9 +1429,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
     }
   };
 
-  // ==========================================
-  // 24/7 BIZMENTOR CHAT
-  // ==========================================
+  // 24/7 BizMentor Chat
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
@@ -1379,7 +1462,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
         ...prev,
         {
           sender: "mentor",
-          text: "I am currently optimizing your query. Ensure your shop has prominent UPI QR codes with soundbox enabled."
+          text: "Ensure prominent UPI QR display with instant soundbox confirmation."
         }
       ]);
     } finally {
@@ -1387,101 +1470,12 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
     }
   };
 
-  // ==========================================
-  // ADMIN CONTROL ACTIONS
-  // ==========================================
-  const handleAdminApproveTxn = async (txn) => {
-    const txnId = txn._id || txn.id;
-    try {
-      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          txnId: txnId,
-          paymentId: txn.paymentId,
-          userEmail: txn.userEmail,
-          status: "approved"
-        })
-      });
-
-      setSubmittedTxns((prev) =>
-        prev.map((t) => (t._id === txnId || t.id === txnId || t.paymentId === txn.paymentId ? { ...t, status: "approved" } : t))
-      );
-      setRegisteredUsersList((prev) =>
-        prev.map((u) => (u.emailOrPhone?.toLowerCase() === txn.userEmail?.toLowerCase() ? { ...u, isProUser: true } : u))
-      );
-
-      if (res.ok) {
-        alert(`Transaction ${txn.paymentId} Approved! Pro access granted to ${txn.userEmail}.`);
-        fetchDbData(currentUser);
-      }
-    } catch (e) {
-      alert("Updated transaction status in local state.");
-    }
-  };
-
-  const handleAdminRevokeTxn = async (txn) => {
-    const txnId = txn._id || txn.id;
-    try {
-      await fetch(`${API_BASE_URL}/subscriptions/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          txnId: txnId,
-          paymentId: txn.paymentId,
-          userEmail: txn.userEmail,
-          status: "rejected"
-        })
-      });
-
-      setSubmittedTxns((prev) =>
-        prev.map((t) => (t._id === txnId || t.id === txnId || t.paymentId === txn.paymentId ? { ...t, status: "rejected" } : t))
-      );
-      setRegisteredUsersList((prev) =>
-        prev.map((u) => (u.emailOrPhone?.toLowerCase() === txn.userEmail?.toLowerCase() ? { ...u, isProUser: false } : u))
-      );
-      alert(`Transaction ${txn.paymentId} revoked.`);
-      fetchDbData(currentUser);
-    } catch (e) {
-      alert("Updated transaction status in local state.");
-    }
-  };
-
-  const handleSubmitVerification = async (e) => {
-    e.preventDefault();
-    setVerificationError("");
-
-    const cleanId = inputPaymentId.trim();
-    if (!/^pay_[a-zA-Z0-9]{12,24}$/.test(cleanId)) {
-      setVerificationError("Invalid Razorpay ID format! Must start with 'pay_'.");
-      return;
-    }
-
-    setIsVerifying(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/subscriptions/submit`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paymentId: cleanId,
-          userEmail: currentUser?.emailOrPhone,
-          userName: currentUser?.name,
-          plan: selectedPlanForVerification
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Submission failed.");
-
-      await fetchDbData(currentUser);
-      setShowVerificationModal(false);
-      alert(`Payment ID ${cleanId} stored in MongoDB!\nStatus: PENDING ADMIN APPROVAL.`);
-    } catch (err) {
-      setVerificationError(err.message);
-    } finally {
-      setIsVerifying(false);
-    }
-  };
+  const filteredSubmittedTxns = submittedTxns.filter((txn) => {
+    if (txnFilterStatus === "pending") return txn.status === "pending" || !txn.status;
+    if (txnFilterStatus === "approved") return txn.status === "approved";
+    if (txnFilterStatus === "rejected") return txn.status === "rejected";
+    return true;
+  });
 
   // ==========================================
   // AUTH WALL VIEW
@@ -1534,7 +1528,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                   authMode === "forgot" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"
                 }`}
               >
-                <KeyRound className="w-3 h-3" />
                 <span>Forgot?</span>
               </button>
               <button
@@ -1830,21 +1823,16 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
           <div className="flex items-center space-x-3 text-sm">
             {isAdminUser ? (
               <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
-                  <Crown className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">ADMIN</span>
-                </div>
                 <button
                   type="button"
                   onClick={() => {
-                    fetchDbData(currentUser);
+                    syncDatabaseData();
                     setActiveTab("admin-works");
-                    setShowAdminConsoleModal(true);
                   }}
-                  className="bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
+                  className="bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer shadow-lg shadow-rose-500/20"
                 >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>Admin Console ⚙️</span>
+                  <Crown className="w-3.5 h-3.5" />
+                  <span>Admin Works (DB) ⚙️</span>
                 </button>
               </div>
             ) : isUserPro ? (
@@ -1854,7 +1842,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                {/* LIVE COUNTDOWN BADGE */}
                 <span className="text-xs text-slate-300 flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   <span>
@@ -1893,7 +1880,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
             { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
             { id: "market", label: "Live AI Market Radar", icon: FileText },
             ...(isAdminUser
-              ? [{ id: "admin-works", label: "Admin Works ⚙️", icon: Settings, highlight: true }]
+              ? [{ id: "admin-works", label: "Administrative Works (MongoDB) ⚙️", icon: Database, highlight: true }]
               : [])
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1904,8 +1891,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 onClick={() => {
                   setActiveTab(tab.id);
                   if (tab.id === "admin-works") {
-                    fetchDbData(currentUser);
-                    setShowAdminConsoleModal(true);
+                    syncDatabaseData();
                   }
                 }}
                 className={`flex items-center space-x-2 py-2.5 px-4 font-medium transition-all border-b-2 whitespace-nowrap cursor-pointer ${
@@ -1993,6 +1979,341 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 Upgrade to Pro
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB: ADMINISTRATIVE WORKS (DIRECT MONGODB HANDLING)       */}
+        {/* ========================================================= */}
+        {activeTab === "admin-works" && isAdminUser && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-rose-950/40 via-red-950/30 to-slate-900 border border-rose-500/40 rounded-3xl p-6 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-2">
+                  <Database className="w-4 h-4" />
+                  <span>Direct MongoDB Database Control Console</span>
+                </span>
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-1">
+                  Administrative Works & Live Subscriptions
+                </h1>
+                <p className="text-xs text-slate-400 mt-1">
+                  Connected directly to your MongoDB database collections: <code>subscriptions</code> & <code>users</code>.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={syncDatabaseData}
+                disabled={isAdminDataLoading}
+                className="bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center space-x-2 shadow-lg cursor-pointer whitespace-nowrap"
+              >
+                <RefreshCw className={`w-4 h-4 ${isAdminDataLoading ? "animate-spin" : ""}`} />
+                <span>{isAdminDataLoading ? "Connecting to MongoDB..." : "Sync Fresh DB Records"}</span>
+              </button>
+            </div>
+
+            {adminDbError && (
+              <div className="bg-rose-950/60 border border-rose-500 p-4 rounded-2xl text-xs text-rose-300 flex items-start space-x-3">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
+                <div>
+                  <strong className="block font-bold">Database Error</strong>
+                  <span>{adminDbError}</span>
+                </div>
+              </div>
+            )}
+            {adminDbSuccess && (
+              <div className="bg-emerald-950/60 border border-emerald-500 p-4 rounded-2xl text-xs text-emerald-300 flex items-start space-x-3">
+                <CheckCircle className="w-5 h-5 flex-shrink-0 text-emerald-400 mt-0.5" />
+                <div>
+                  <strong className="block font-bold">Database Operation Successful</strong>
+                  <span>{adminDbSuccess}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setAdminSubTab("txns")}
+                className={`px-4 py-2 rounded-xl font-bold transition flex items-center space-x-2 cursor-pointer ${
+                  adminSubTab === "txns" ? "bg-rose-500 text-slate-950" : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <IndianRupee className="w-3.5 h-3.5" />
+                <span>Payment Approvals ({submittedTxns.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminSubTab("users")}
+                className={`px-4 py-2 rounded-xl font-bold transition flex items-center space-x-2 cursor-pointer ${
+                  adminSubTab === "users" ? "bg-rose-500 text-slate-950" : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Registered Users ({registeredUsersList.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminSubTab("manual")}
+                className={`px-4 py-2 rounded-xl font-bold transition flex items-center space-x-2 cursor-pointer ${
+                  adminSubTab === "manual" ? "bg-rose-500 text-slate-950" : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Manual Pro Grant</span>
+              </button>
+            </div>
+
+            {/* SUB-TAB 1: PAYMENT APPROVALS */}
+            {adminSubTab === "txns" && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+                  <div>
+                    <h3 className="font-extrabold text-slate-100 text-base">
+                      Submitted Payments from MongoDB
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Approving grants permanent Pro access to the user in MongoDB.
+                    </p>
+                  </div>
+                  <div className="flex items-center space-x-1 text-xs">
+                    {["all", "pending", "approved", "rejected"].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setTxnFilterStatus(st)}
+                        className={`px-3 py-1.5 rounded-lg capitalize font-bold transition cursor-pointer ${
+                          txnFilterStatus === st
+                            ? "bg-slate-800 text-amber-400 border border-slate-700"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {filteredSubmittedTxns.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl">
+                    <Database className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+                    No transactions found in MongoDB matching status: <strong className="text-slate-400">{txnFilterStatus}</strong>.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                          <th className="py-3 px-3">Razorpay ID</th>
+                          <th className="py-3 px-3">User Email</th>
+                          <th className="py-3 px-3">Plan</th>
+                          <th className="py-3 px-3">DB Status</th>
+                          <th className="py-3 px-3 text-right">MongoDB Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60 font-mono">
+                        {filteredSubmittedTxns.map((txn) => {
+                          const isApproved = txn.status === "approved";
+                          const isRejected = txn.status === "rejected";
+                          return (
+                            <tr key={txn._id || txn.id || txn.paymentId} className="hover:bg-slate-950/40 transition">
+                              <td className="py-3.5 px-3 font-bold text-amber-400">
+                                {txn.paymentId}
+                              </td>
+                              <td className="py-3.5 px-3 font-sans text-slate-200">
+                                {txn.userEmail}
+                              </td>
+                              <td className="py-3.5 px-3 font-sans text-slate-300">
+                                {txn.plan}
+                              </td>
+                              <td className="py-3.5 px-3 font-sans">
+                                {isApproved ? (
+                                  <span className="bg-emerald-950/80 text-emerald-400 border border-emerald-500/40 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                                    Approved
+                                  </span>
+                                ) : isRejected ? (
+                                  <span className="bg-rose-950/80 text-rose-400 border border-rose-500/40 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                                    Rejected
+                                  </span>
+                                ) : (
+                                  <span className="bg-amber-950/80 text-amber-400 border border-amber-500/40 px-2.5 py-1 rounded-full text-[10px] font-bold">
+                                    Pending Approval
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-3 font-sans text-right space-x-2">
+                                {!isApproved ? (
+                                  <button
+                                    type="button"
+                                    disabled={isExecutingAdminAction}
+                                    onClick={() => handleAdminApproveTxn(txn)}
+                                    className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1 rounded-lg text-xs transition cursor-pointer"
+                                  >
+                                    Approve in DB
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={isExecutingAdminAction}
+                                    onClick={() => handleAdminRevokeTxn(txn)}
+                                    className="bg-slate-800 hover:bg-rose-950 text-rose-400 border border-rose-500/30 font-bold px-3 py-1 rounded-lg text-xs transition cursor-pointer"
+                                  >
+                                    Revoke in DB
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUB-TAB 2: REGISTERED USERS & EVALUATION RESET */}
+            {adminSubTab === "users" && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+                <div className="border-b border-slate-800 pb-4">
+                  <h3 className="font-extrabold text-slate-100 text-base">
+                    MongoDB User Accounts ({registeredUsersList.length})
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Directly modify user records, reset their free evaluation limits to 0, or grant Pro status in the database.
+                  </p>
+                </div>
+
+                {registeredUsersList.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl">
+                    <Users className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+                    No users returned from MongoDB API <code>/api/admin/users</code>.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                          <th className="py-3 px-3">Name</th>
+                          <th className="py-3 px-3">Email Address</th>
+                          <th className="py-3 px-3">Role</th>
+                          <th className="py-3 px-3">Free Used</th>
+                          <th className="py-3 px-3">Pro Access</th>
+                          <th className="py-3 px-3 text-right">MongoDB Controls</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {registeredUsersList.map((u) => {
+                          const isPro = Boolean(u.isProUser || u.role === "admin");
+                          return (
+                            <tr key={u._id || u.emailOrPhone} className="hover:bg-slate-950/40 transition">
+                              <td className="py-3 px-3 font-bold text-slate-100">{u.name || "N/A"}</td>
+                              <td className="py-3 px-3 text-slate-300 font-mono">{u.emailOrPhone}</td>
+                              <td className="py-3 px-3">
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                  u.role === "admin" ? "bg-rose-950 text-rose-400" : "bg-slate-800 text-slate-400"
+                                }`}>
+                                  {u.role || "user"}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="text-amber-400 font-bold">{u.evaluationsCount || 0}</span> / {FREE_USAGE_LIMIT}
+                              </td>
+                              <td className="py-3 px-3">
+                                {isPro ? (
+                                  <span className="text-emerald-400 font-bold flex items-center space-x-1">
+                                    <Check className="w-3 h-3" />
+                                    <span>Active</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500">Free Tier</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-3 text-right space-x-2 whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  disabled={isExecutingAdminAction}
+                                  onClick={() => handleAdminResetEvaluations(u.emailOrPhone)}
+                                  className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer"
+                                  title="Reset evaluation count to 0 in MongoDB"
+                                >
+                                  Reset Count
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isExecutingAdminAction}
+                                  onClick={() => handleAdminToggleUserPro(u.emailOrPhone, isPro)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer ${
+                                    isPro
+                                      ? "bg-slate-800 text-rose-400 hover:bg-rose-950"
+                                      : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold"
+                                  }`}
+                                >
+                                  {isPro ? "Revoke Pro" : "Grant Pro"}
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isExecutingAdminAction}
+                                  onClick={() => handleAdminDeleteUser(u.emailOrPhone)}
+                                  className="text-slate-500 hover:text-rose-400 p-1 cursor-pointer"
+                                  title="Delete User from MongoDB"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 inline" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUB-TAB 3: MANUAL PRO GRANT FORM */}
+            {adminSubTab === "manual" && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg space-y-4 shadow-xl text-xs">
+                <div>
+                  <h3 className="font-extrabold text-slate-100 text-base">
+                    Manual MongoDB Subscription Creator
+                  </h3>
+                  <p className="text-slate-400 mt-1">
+                    Grant immediate Pro membership by user email for bank transfers, cash payments, or testing.
+                  </p>
+                </div>
+                <form onSubmit={handleAdminManualGrant} className="space-y-4 pt-2">
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">User Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="founder@business.in"
+                      value={manualGrantEmail}
+                      onChange={(e) => setManualGrantEmail(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-300 font-semibold mb-1">Select Membership Plan</label>
+                    <select
+                      value={manualGrantPlan}
+                      onChange={(e) => setManualGrantPlan(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
+                    >
+                      <option>Day Pass (₹49)</option>
+                      <option>Monthly Pro (₹249)</option>
+                      <option>Quarterly Pro (₹599)</option>
+                    </select>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isExecutingAdminAction}
+                    className="w-full bg-rose-500 hover:bg-rose-400 text-slate-950 font-bold py-2.5 rounded-xl transition cursor-pointer"
+                  >
+                    {isExecutingAdminAction ? "Writing to MongoDB..." : "Grant Pro Access in MongoDB"}
+                  </button>
+                </form>
+              </div>
+            )}
           </div>
         )}
 
@@ -2091,7 +2412,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating 6 Parameters with AI...</span>
+                        <span>Evaluating Parameters with AI...</span>
                       </>
                     ) : (
                       <>
@@ -2103,7 +2424,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 </form>
               </div>
 
-              {/* Ideas Output Column */}
+              {/* Ideas Output */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
@@ -2137,12 +2458,11 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
 
                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300">
-                          <strong className="text-amber-400">Why it fits your 6 inputs: </strong>
+                          <strong className="text-amber-400">Why it fits your inputs: </strong>
                           {idea.whyFit}
                         </div>
 
                         <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
-                          {/* BUTTON 1: RUN DEEP ANALYSIS */}
                           <button
                             type="button"
                             onClick={() => handleOpenDeepAnalysis(idea)}
@@ -2151,8 +2471,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                             <Sparkles className="w-3.5 h-3.5" />
                             <span>Run Deep Analysis 🔬</span>
                           </button>
-
-                          {/* BUTTON 2: CHOOSE VENTURE */}
                           <button
                             type="button"
                             onClick={() => handleChooseVenture(idea)}
@@ -2168,13 +2486,13 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 ) : (
                   <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
                     <Lightbulb className="w-10 h-10 text-slate-700 mb-2" />
-                    <p className="text-sm font-semibold text-slate-400">Configure your 6 parameters on the left to evaluate 5 bespoke ideas.</p>
+                    <p className="text-sm font-semibold text-slate-400">Configure parameters on the left to evaluate 5 bespoke ideas.</p>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* MODAL: ONE-CLICK DEEP ANALYSIS */}
+            {/* Deep Analysis Modal */}
             {deepAnalysisIdea && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[110] flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 relative shadow-2xl text-xs">
@@ -2201,7 +2519,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                     </div>
                   ) : deepAnalysisData ? (
                     <div className="space-y-6">
-                      {/* 1. Unit Economics */}
                       <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
                         <h4 className="font-bold text-amber-400 text-sm flex items-center space-x-2">
                           <Calculator className="w-4 h-4" />
@@ -2235,7 +2552,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
                       </div>
 
-                      {/* 2. Break-Even Analysis */}
                       <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
                         <h4 className="font-bold text-sky-400 text-sm flex items-center space-x-2">
                           <TrendingUp className="w-4 h-4" />
@@ -2261,7 +2577,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
                       </div>
 
-                      {/* 3. Customer Archetype */}
                       <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
                         <h4 className="font-bold text-amber-400 text-sm flex items-center space-x-2">
                           <Users className="w-4 h-4" />
@@ -2281,7 +2596,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </p>
                       </div>
 
-                      {/* 4. Supply Chain & Vendor Guide */}
                       <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
                         <h4 className="font-bold text-indigo-400 text-sm flex items-center space-x-2">
                           <Truck className="w-4 h-4" />
@@ -2303,7 +2617,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
                       </div>
 
-                      {/* Modal CTA */}
                       <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
                         <button
                           type="button"
@@ -2333,12 +2646,11 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
         )}
 
         {/* ========================================================= */}
-        {/* TAB 2: DEMAND & SUITABILITY-DRIVEN LOCATION SCOUT         */}
+        {/* TAB 2: DEMAND LOCATION SCOUT                              */}
         {/* ========================================================= */}
         {activeTab === "location-scout" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Input Form Column */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="border-b border-slate-800 pb-3">
                   <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
@@ -2448,7 +2760,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                       key={idx}
                       className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3.5 shadow-xl transition hover:border-slate-700"
                     >
-                      {/* Header */}
                       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
                         <div>
                           <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20 mr-2">
@@ -2464,7 +2775,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
                       </div>
 
-                      {/* Demand Intensity Badge */}
                       <div className="bg-amber-950/20 border border-amber-500/30 px-3.5 py-2 rounded-2xl flex items-center space-x-2 text-xs text-amber-300">
                         <Flame className="w-4 h-4 flex-shrink-0 text-amber-400" />
                         <span>
@@ -2472,7 +2782,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </span>
                       </div>
 
-                      {/* Unmet Need & Customer Frustration */}
                       <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-1">
                         <strong className="text-slate-100 flex items-center space-x-1.5">
                           <Target className="w-3.5 h-3.5 text-rose-400" />
@@ -2481,7 +2790,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         <p className="leading-relaxed text-slate-300">{loc.unmetNeedAnalysis}</p>
                       </div>
 
-                      {/* Demand Triggers & Ideal Positioning */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
                           <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
@@ -2499,11 +2807,10 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </div>
                       </div>
 
-                      {/* Competition Void */}
                       <div className="bg-indigo-950/20 border border-indigo-500/30 p-3.5 rounded-2xl text-[11px] text-indigo-300 space-y-1">
                         <strong className="text-indigo-200 flex items-center space-x-1.5">
                           <AlertCircle className="w-3.5 h-3.5" />
-                          <span>Why Existing Alternatives Fail (Your Competitive Edge):</span>
+                          <span>Why Existing Alternatives Fail (Your Edge):</span>
                         </strong>
                         <p className="leading-relaxed">{loc.competitionVoid}</p>
                       </div>
@@ -2640,7 +2947,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                       {analysisResult.summary}
                     </p>
 
-                    {/* Capex & Opex */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
                         <strong className="text-amber-400 block font-bold">Planned Capex Breakdown:</strong>
@@ -2663,7 +2969,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                       </div>
                     </div>
 
-                    {/* Licenses */}
                     <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
                       <strong className="text-indigo-400 block font-bold mb-2">Mandatory Indian Registrations & Permits:</strong>
                       <div className="flex flex-wrap gap-2">
@@ -2675,7 +2980,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                       </div>
                     </div>
 
-                    {/* COMPREHENSIVE RISK & THREAT MATRIX */}
                     {analysisResult.riskMatrix && (
                       <div className="space-y-4 pt-2 border-t border-slate-800">
                         <h4 className="font-bold text-rose-400 text-sm flex items-center space-x-2">
@@ -2684,7 +2988,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                         </h4>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {/* Cashflow & Udhaar */}
                           <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-slate-200">1. Cashflow & Udhaar Risk</span>
@@ -2698,7 +3001,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                             </div>
                           </div>
 
-                          {/* Seasonal / Monsoons */}
                           <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-slate-200">2. Monsoon & Seasonal Risk</span>
@@ -2711,37 +3013,8 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                               <strong>Mitigation: </strong>{analysisResult.riskMatrix.seasonalRisk.mitigation}
                             </div>
                           </div>
-
-                          {/* Regulatory / Municipality */}
-                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
-                            <div className="flex justify-between items-center">
-                              <span className="font-bold text-slate-200">3. Regulatory & Municipality</span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-400">
-                                {analysisResult.riskMatrix.regulatoryRisk.level}
-                              </span>
-                            </div>
-                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.regulatoryRisk.threat}</p>
-                            <div className="text-emerald-400 text-[11px] mt-1">
-                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.regulatoryRisk.mitigation}
-                            </div>
-                          </div>
-
-                          {/* Supplier Volatility */}
-                          <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
-                            <div className="flex justify-between items-center">
-                              <span className="font-bold text-slate-200">4. Raw Material Volatility</span>
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-rose-950 text-rose-400">
-                                {analysisResult.riskMatrix.supplierRisk.level}
-                              </span>
-                            </div>
-                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.supplierRisk.threat}</p>
-                            <div className="text-emerald-400 text-[11px] mt-1">
-                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.supplierRisk.mitigation}
-                            </div>
-                          </div>
                         </div>
 
-                        {/* Downside Survival Strategy */}
                         <div className="bg-rose-950/20 border border-rose-500/40 p-4 rounded-2xl space-y-1 text-slate-300">
                           <strong className="text-rose-400 block font-bold flex items-center space-x-1.5">
                             <ShieldAlert className="w-4 h-4" />
@@ -2771,7 +3044,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
-              {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
                 <div>
                   <h3 className="font-extrabold text-slate-100 text-lg flex items-center space-x-2">
@@ -2797,7 +3069,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 </div>
               </div>
 
-              {/* Progress Bar */}
               <div className="w-full bg-slate-950 rounded-full h-2.5 overflow-hidden border border-slate-800">
                 <div
                   className="bg-gradient-to-r from-amber-500 to-emerald-500 h-2.5 transition-all duration-300 rounded-full"
@@ -2805,7 +3076,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 />
               </div>
 
-              {/* Filter */}
               <div className="flex space-x-2 text-xs">
                 {["all", "incomplete", "completed"].map((filter) => (
                   <button
@@ -2822,7 +3092,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 ))}
               </div>
 
-              {/* 10 Days List */}
               <div className="space-y-3">
                 {filteredTasks.map((t) => (
                   <div
@@ -2883,7 +3152,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
               </div>
             </div>
 
-            {/* SOP ADVICE MODAL */}
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
@@ -2934,7 +3202,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
-              {/* Profit Margin Doctor */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-3">
                   <h3 className="font-bold text-slate-100 text-sm">Unit Profit & Margin Doctor</h3>
@@ -2980,7 +3247,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 )}
               </div>
 
-              {/* Break-Even Units */}
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Break-Even Volume Calculator</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -3005,7 +3271,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
               </div>
             </div>
 
-            {/* Daily Cashflow & Udhaar Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                 <h3 className="text-base font-bold text-slate-100 flex items-center space-x-2">
@@ -3112,71 +3377,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                   <p className="text-xs text-slate-400 leading-relaxed">{t.desc}</p>
                 </div>
               ))}
-            </div>
-          </div>
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB: ADMIN WORKS (Visible only to Admin)                   */}
-        {/* ========================================================= */}
-        {activeTab === "admin-works" && isAdminUser && (
-          <div className="space-y-6">
-            <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
-              <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
-                <Crown className="w-4 h-4" />
-                <span>Executive Administrative Workspace</span>
-              </span>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Payment Approvals & User Access Management (MongoDB)
-              </h1>
-            </div>
-
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                <h3 className="font-bold text-slate-100 text-base">Transactions Submitted ({submittedTxns.length})</h3>
-                <button
-                  type="button"
-                  onClick={() => fetchDbData(currentUser)}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg text-xs flex items-center space-x-1 cursor-pointer"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Sync DB</span>
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                {submittedTxns.length === 0 ? (
-                  <div className="text-slate-500 text-xs py-4 text-center">No submissions yet.</div>
-                ) : (
-                  submittedTxns.map((txn) => (
-                    <div key={txn._id || txn.id || txn.paymentId} className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between text-xs">
-                      <div>
-                        <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                        <div className="text-slate-400">{txn.userEmail} • {txn.plan}</div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        {txn.status !== "approved" ? (
-                          <button
-                            type="button"
-                            onClick={() => handleAdminApproveTxn(txn)}
-                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1 rounded-lg cursor-pointer"
-                          >
-                            Approve Pro
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleAdminRevokeTxn(txn)}
-                            className="bg-rose-950 text-rose-400 border border-rose-500/40 font-bold px-3 py-1 rounded-lg cursor-pointer"
-                          >
-                            Revoke Pro
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
             </div>
           </div>
         )}
@@ -3349,9 +3549,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
             </button>
 
             <div className="text-center space-y-1">
-              <div className="w-12 h-12 bg-amber-500/10 text-amber-400 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
+              <ShieldCheck className="w-10 h-10 text-amber-400 mx-auto" />
               <h3 className="text-lg font-bold text-slate-100">Payment Verification</h3>
               <p className="text-xs text-slate-400">
                 Provide your official <strong>Razorpay Payment ID</strong> (starts with <code>pay_</code>).
@@ -3359,9 +3557,8 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
             </div>
 
             {verificationError && (
-              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-start space-x-2">
-                <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
-                <span>{verificationError}</span>
+              <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300">
+                {verificationError}
               </div>
             )}
 
@@ -3396,7 +3593,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 disabled={isVerifying}
                 className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
               >
-                {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Submit for Admin Approval</span>}
+                {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Submit to MongoDB</span>}
               </button>
             </form>
           </div>
