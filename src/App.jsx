@@ -226,7 +226,14 @@ export default function BizNavigatorApp() {
   }, []);
 
   // 1. AUTHENTICATION & SESSION
-  const [currentUser, setCurrentUser] = useState(() => safeGetStorage(`${STORAGE_PREFIX}user`, null));
+  const [currentUser, setCurrentUser] = useState(() => {
+    const saved = safeGetStorage(`${STORAGE_PREFIX}user`, null);
+    if (saved && typeof saved.evaluationsCount === "undefined") {
+      saved.evaluationsCount = 0;
+    }
+    return saved;
+  });
+
   const [authMode, setAuthMode] = useState("login");
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -295,9 +302,9 @@ export default function BizNavigatorApp() {
     )
   );
 
-  const evaluationsCount = currentUser?.evaluationsCount || 0;
+  const evaluationsCount = Number(currentUser?.evaluationsCount) || 0;
 
-  // Sync state to local storage
+  // Sync user state to local storage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
@@ -387,12 +394,18 @@ export default function BizNavigatorApp() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Authentication failed.");
 
-      setCurrentUser(data.user);
+      const loggedInUser = {
+        ...data.user,
+        evaluationsCount: Number(data.user.evaluationsCount) || 0
+      };
+
+      setCurrentUser(loggedInUser);
+      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(loggedInUser));
       setAuthPassword("");
 
-      if (data.user?.role?.toLowerCase() === "admin") {
+      if (loggedInUser?.role?.toLowerCase() === "admin") {
         setActiveTab("admin-works");
-        fetchDbData(data.user);
+        fetchDbData(loggedInUser);
       } else {
         setActiveTab("idea-finder");
       }
@@ -473,7 +486,13 @@ export default function BizNavigatorApp() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verification failed. Invalid OTP code.");
 
-      setCurrentUser(data.user);
+      const registeredUser = {
+        ...data.user,
+        evaluationsCount: Number(data.user.evaluationsCount) || 0
+      };
+
+      setCurrentUser(registeredUser);
+      localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(registeredUser));
       setAuthPassword("");
       setSignupEnteredOtp("");
       setSignupStep(1);
@@ -572,18 +591,45 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // GEMINI AI CALLER
+  // GEMINI AI CALLER (WITH SYNCHRONIZED 5-EVALUATION COUNTDOWN)
   // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
-    if (!isAdminUser && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
+    const currentCount = Number(currentUser.evaluationsCount) || 0;
+
+    // Hard ceiling enforcement for free tier
+    if (!isAdminUser && !isUserPro && currentCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
     }
 
     setLastAiError("");
 
+    // Helper to immediately update state, persist to localStorage, and sync with MongoDB
+    const recordEvaluationUsage = () => {
+      if (!isAdminUser && !isUserPro) {
+        setCurrentUser((prev) => {
+          if (!prev) return prev;
+          const nextCount = (Number(prev.evaluationsCount) || 0) + 1;
+          const updated = {
+            ...prev,
+            evaluationsCount: nextCount
+          };
+          localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(updated));
+          return updated;
+        });
+
+        // Fire asynchronous DB update
+        fetch(`${API_BASE_URL}/users/usage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+        }).catch(() => {});
+      }
+    };
+
+    // 1. Try Backend Proxy
     try {
       const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
         method: "POST",
@@ -598,12 +644,7 @@ export default function BizNavigatorApp() {
       if (serverRes.ok) {
         const serverData = await serverRes.json();
         if (serverData.text) {
-          if (!isAdminUser && !isUserPro) {
-            setCurrentUser((prev) => ({
-              ...prev,
-              evaluationsCount: (prev.evaluationsCount || 0) + 1
-            }));
-          }
+          recordEvaluationUsage();
           return serverData.text;
         }
         if (serverData.error) {
@@ -612,6 +653,7 @@ export default function BizNavigatorApp() {
       }
     } catch (err) {}
 
+    // 2. Direct Gemini Fallback
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
@@ -633,13 +675,7 @@ export default function BizNavigatorApp() {
           const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
           if (textResponse) {
-            if (!isAdminUser && !isUserPro) {
-              fetch(`${API_BASE_URL}/users/usage`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-              }).catch(() => {});
-            }
+            recordEvaluationUsage();
             return textResponse;
           }
         } catch (e) {}
@@ -2744,7 +2780,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
             {/* SOP ADVICE MODAL */}
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
                   <button
                     type="button"
                     onClick={() => setTaskAdviceModal(null)}
