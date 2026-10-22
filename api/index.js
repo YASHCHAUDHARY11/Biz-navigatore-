@@ -2,12 +2,13 @@ import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import bcrypt from "bcryptjs";
+import nodemailer from "nodemailer";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. MONGODB CONNECTION (Cached for Serverless)
+// 1. MONGODB CONNECTION
 const MONGODB_URI =
   process.env.MONGODB_URI ||
   "mongodb+srv://yash963957_db_user:z83U3l4zKQnuo353@biznavigator.hgohuud.mongodb.net/biznavigator?retryWrites=true&w=majority";
@@ -24,13 +25,21 @@ async function connectDB() {
   }
 }
 
-// Middleware to ensure DB connection
 app.use(async (req, res, next) => {
   await connectDB();
   next();
 });
 
-// 2. MONGOOSE SCHEMAS & MODELS
+// 2. NODEMAILER TRANSPORTER SETUP
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+});
+
+// 3. MONGOOSE SCHEMAS & MODELS
 const UserSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -60,7 +69,7 @@ const TransactionSchema = new mongoose.Schema(
 const User = mongoose.models.User || mongoose.model("User", UserSchema);
 const Transaction = mongoose.models.Transaction || mongoose.model("Transaction", TransactionSchema);
 
-// 3. AUTHENTICATION ROUTES
+// 4. AUTHENTICATION ROUTES
 
 // Register User
 app.post("/api/auth/register", async (req, res) => {
@@ -161,7 +170,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Forgot Password - Send OTP
+// Forgot Password - Send Real Email OTP
 app.post("/api/auth/forgot-otp", async (req, res) => {
   try {
     const { email } = req.body;
@@ -178,16 +187,38 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
 
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
     user.resetOtp = generatedOtp;
-    user.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000);
+    user.resetOtpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 min
     await user.save();
 
+    // Send Real Email via Nodemailer
+    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+      await transporter.sendMail({
+        from: `"BizNavigator Support" <${process.env.EMAIL_USER}>`,
+        to: cleanEmail,
+        subject: "Your BizNavigator Password Reset OTP",
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; rounded: 10px;">
+            <h2 style="color: #f59e0b; text-align: center;">BizNavigator 🇮🇳</h2>
+            <p>Namaste <strong>${user.name}</strong>,</p>
+            <p>Aapke BizNavigator account ka password reset request receive hua hai. Aapka 6-digit OTP niche diya gaya hai:</p>
+            <div style="text-align: center; margin: 25px 0;">
+              <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 10px 24px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
+            </div>
+            <p style="color: #64748b; font-size: 13px;">Ye OTP agle <strong>5 minutes</strong> ke liye valid hai. Agar ye request aapne nahi ki thi, toh is email ko ignore karein.</p>
+            <hr style="border: none; border-top: 1px solid #e2e8f0; margin-top: 20px;" />
+            <p style="color: #94a3b8; font-size: 11px; text-align: center;">BizNavigator • Smart Business Strategy for India</p>
+          </div>
+        `
+      });
+    }
+
     return res.json({
-      message: "OTP generated successfully",
-      otp: generatedOtp,
+      message: "OTP sent to your registered email address!",
+      otp: process.env.NODE_ENV === "production" ? undefined : generatedOtp,
       expiresInSeconds: 300
     });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Failed to send email OTP: " + err.message });
   }
 });
 
@@ -238,8 +269,7 @@ app.post("/api/users/usage", async (req, res) => {
   }
 });
 
-// 4. SUBSCRIPTION & PAYMENT VERIFICATION ROUTES
-
+// 5. SUBSCRIPTION & PAYMENT ROUTES
 app.post("/api/subscriptions/submit", async (req, res) => {
   try {
     const { paymentId, userEmail, userName, plan } = req.body;
