@@ -67,7 +67,6 @@ const PendingRegistrationSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-// Auto-delete pending docs after 10 minutes
 PendingRegistrationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 600 });
 
 const TransactionSchema = new mongoose.Schema(
@@ -87,7 +86,7 @@ const Transaction = mongoose.models.Transaction || mongoose.model("Transaction",
 
 // 4. AUTHENTICATION ROUTES
 
-// Step 1: Send Registration OTP to Email
+// Send Registration OTP to Email
 app.post("/api/auth/register-otp", async (req, res) => {
   try {
     const { name, emailOrPhone, businessName, password } = req.body;
@@ -105,9 +104,8 @@ app.post("/api/auth/register-otp", async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 min
+    const otpExpires = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Save or update pending record
     await PendingRegistration.deleteMany({ emailOrPhone: cleanAccount });
     await PendingRegistration.create({
       name,
@@ -128,7 +126,7 @@ app.post("/api/auth/register-otp", async (req, res) => {
             <h2 style="color: #f59e0b; text-align: center; margin-bottom: 5px;">BizNavigator 🇮🇳</h2>
             <p style="text-align: center; color: #64748b; font-size: 13px; margin-top: 0;">Empowering Indian SMEs</p>
             <p>Namaste <strong>${name}</strong>,</p>
-            <p>BizNavigator par apna account create karne ke liye niche diya gaya 6-digit OTP enter karein:</p>
+            <p>BizNavigator par apna account verify karne ke liye 6-digit OTP enter karein:</p>
             <div style="text-align: center; margin: 25px 0;">
               <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 12px 28px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
             </div>
@@ -149,7 +147,7 @@ app.post("/api/auth/register-otp", async (req, res) => {
   }
 });
 
-// Step 2: Verify Registration OTP & Save to MongoDB User Collection
+// Verify Registration OTP & Save to MongoDB
 app.post("/api/auth/register-verify", async (req, res) => {
   try {
     const { emailOrPhone, otp } = req.body;
@@ -252,7 +250,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-// Forgot Password - Send Real Email OTP
+// Forgot Password - Send OTP
 app.post("/api/auth/forgot-otp", async (req, res) => {
   try {
     const { email } = req.body;
@@ -349,7 +347,7 @@ app.post("/api/users/usage", async (req, res) => {
   }
 });
 
-// 5. SUBSCRIPTIONS
+// 5. SUBSCRIPTION & PAYMENT ROUTES
 app.post("/api/subscriptions/submit", async (req, res) => {
   try {
     const { paymentId, userEmail, userName, plan } = req.body;
@@ -388,10 +386,19 @@ app.get("/api/subscriptions/all", async (req, res) => {
   }
 });
 
+// Safe Admin Approve / Reject Transaction (By ObjectId or PaymentId)
 app.post("/api/subscriptions/status", async (req, res) => {
   try {
-    const { txnId, status } = req.body;
-    const txn = await Transaction.findById(txnId);
+    const { txnId, paymentId, userEmail, status } = req.body;
+    let txn = null;
+
+    if (txnId && mongoose.isValidObjectId(txnId)) {
+      txn = await Transaction.findById(txnId);
+    }
+    if (!txn && paymentId) {
+      txn = await Transaction.findOne({ paymentId: paymentId.trim() });
+    }
+
     if (!txn) {
       return res.status(404).json({ error: "Transaction not found." });
     }
@@ -399,10 +406,13 @@ app.post("/api/subscriptions/status", async (req, res) => {
     txn.status = status;
     await txn.save();
 
-    const user = await User.findOne({ emailOrPhone: txn.userEmail });
-    if (user) {
-      user.isProUser = status === "approved";
-      await user.save();
+    const targetEmail = (userEmail || txn.userEmail)?.trim().toLowerCase();
+    if (targetEmail) {
+      const user = await User.findOne({ emailOrPhone: targetEmail });
+      if (user) {
+        user.isProUser = status === "approved";
+        await user.save();
+      }
     }
 
     return res.json({ message: `Transaction marked as ${status}.`, transaction: txn });
@@ -435,7 +445,8 @@ app.post("/api/admin/toggle-pro", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
-// SECURE GEMINI AI ROUTE - Uses your Vercel GEMINI_API_KEY environment variable
+
+// 6. SECURE GEMINI AI ROUTE
 app.post("/api/ai/generate", async (req, res) => {
   try {
     const { prompt, systemInstruction } = req.body;
@@ -485,4 +496,5 @@ app.post("/api/ai/generate", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
 export default app;
