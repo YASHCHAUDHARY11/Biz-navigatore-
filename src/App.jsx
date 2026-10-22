@@ -55,7 +55,6 @@ import {
   Database
 } from "lucide-react";
 
-// --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
 const API_BASE_URL =
   typeof window !== "undefined" && window.location.hostname === "localhost"
     ? "http://localhost:5000/api"
@@ -74,12 +73,11 @@ const VERCEL_ENV_GEMINI_KEY =
   "";
 
 const PAYMENT_LINKS = {
-  dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
-  monthlyPro: "https://rzp.io/rzp/IYMoJDwv",   // ₹249
-  quarterlyPro: "https://rzp.io/rzp/wkdIZLD"   // ₹599
+  dayPass: "https://rzp.io/rzp/BotR1EMB",
+  monthlyPro: "https://rzp.io/rzp/IYMoJDwv",
+  quarterlyPro: "https://rzp.io/rzp/wkdIZLD"
 };
 
-// --- INITIAL 10-DAY SPRINT DATA ---
 const INITIAL_10_DAY_SPRINT = [
   {
     id: "day_1",
@@ -193,7 +191,6 @@ const INITIAL_10_DAY_SPRINT = [
   }
 ];
 
-// --- HELPER FUNCTIONS ---
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
   try {
@@ -225,7 +222,6 @@ export default function BizNavigatorApp() {
     localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
   }, []);
 
-  // 1. AUTHENTICATION & SESSION
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = safeGetStorage(`${STORAGE_PREFIX}user`, null);
     if (saved) {
@@ -243,7 +239,6 @@ export default function BizNavigatorApp() {
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // OTP States
   const [otpStep, setOtpStep] = useState(1);
   const [enteredOtp, setEnteredOtp] = useState("");
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
@@ -257,7 +252,6 @@ export default function BizNavigatorApp() {
   const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
   const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
-  // Direct MongoDB Database States
   const [submittedTxns, setSubmittedTxns] = useState([]);
   const [registeredUsersList, setRegisteredUsersList] = useState([]);
   const [isAdminDataLoading, setIsAdminDataLoading] = useState(false);
@@ -269,7 +263,6 @@ export default function BizNavigatorApp() {
   const [manualGrantPlan, setManualGrantPlan] = useState("Monthly Pro (₹249)");
   const [isExecutingAdminAction, setIsExecutingAdminAction] = useState(false);
 
-  // Modals & Panels
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
@@ -278,15 +271,12 @@ export default function BizNavigatorApp() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [legalModalType, setLegalModalType] = useState(null);
 
-  // Deep Analysis Modal
   const [deepAnalysisIdea, setDeepAnalysisIdea] = useState(null);
   const [deepAnalysisData, setDeepAnalysisData] = useState(null);
   const [isLoadingDeepAnalysis, setIsLoadingDeepAnalysis] = useState(false);
 
-  // Active Venture State (Pipeline across tabs)
   const [selectedVenture, setSelectedVenture] = useState(() => safeGetStorage(`${STORAGE_PREFIX}selected_venture`, null));
 
-  // Navigation
   const [activeTab, setActiveTab] = useState(() => {
     const user = safeGetStorage(`${STORAGE_PREFIX}user`, null);
     if (user?.role?.toLowerCase() === "admin" || user?.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
@@ -307,7 +297,6 @@ export default function BizNavigatorApp() {
   const evaluationsCount = Math.max(0, Number(currentUser?.evaluationsCount) || 0);
   const remainingEvaluations = Math.max(0, FREE_USAGE_LIMIT - evaluationsCount);
 
-  // Sync user state to local storage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
@@ -322,7 +311,6 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // Sync DB records directly from MongoDB
   const syncDatabaseData = useCallback(async () => {
     if (!currentUser) return;
     setIsAdminDataLoading(true);
@@ -370,7 +358,6 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser, syncDatabaseData]);
 
-  // Timers
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -383,7 +370,16 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupOtpSecondsLeft]);
 
-  // Usage Recording Logic
+  // UNIFIED EVALUATION LIMIT CHECK & USAGE RECORDING
+  const canPerformEvaluation = () => {
+    if (isAdminUser || isUserPro) return true;
+    if (remainingEvaluations <= 0) {
+      setShowPaywallModal(true);
+      return false;
+    }
+    return true;
+  };
+
   const recordEvaluationUsage = async () => {
     if (isAdminUser || isUserPro) return;
     try {
@@ -398,17 +394,11 @@ export default function BizNavigatorApp() {
         setCurrentUser((prev) => ({ ...prev, evaluationsCount: serverCount }));
       }
     } catch (e) {
-      setCurrentUser((prev) => ({ ...prev, evaluationsCount: Math.min(FREE_USAGE_LIMIT, (Number(prev?.evaluationsCount) || 0) + 1) }));
+      setCurrentUser((prev) => ({
+        ...prev,
+        evaluationsCount: Math.min(FREE_USAGE_LIMIT, (Number(prev?.evaluationsCount) || 0) + 1)
+      }));
     }
-  };
-
-  const canPerformEvaluation = () => {
-    if (isAdminUser || isUserPro) return true;
-    if (remainingEvaluations <= 0) {
-      setShowPaywallModal(true);
-      return false;
-    }
-    return true;
   };
 
   // Direct MongoDB Admin CRUD
@@ -773,8 +763,8 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Gemini AI Caller
-  const callGeminiAI = async (prompt, systemInstruction = "") => {
+  // GEMINI AI CALLER (SUPPORTS BOTH PLAIN TEXT & JSON)
+  const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
     setLastAiError("");
 
@@ -785,7 +775,8 @@ export default function BizNavigatorApp() {
         body: JSON.stringify({
           prompt,
           systemInstruction,
-          userEmail: currentUser.emailOrPhone
+          userEmail: currentUser.emailOrPhone,
+          isJson
         })
       });
 
@@ -803,6 +794,9 @@ export default function BizNavigatorApp() {
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
+      const generationConfig = { temperature: 0.7 };
+      if (isJson) generationConfig.responseMimeType = "application/json";
+
       for (const model of models) {
         try {
           const response = await fetch(
@@ -812,7 +806,7 @@ export default function BizNavigatorApp() {
               headers: { "Content-Type": "application/json", "x-goog-api-key": envKey },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
-                generationConfig: { temperature: 0.7, responseMimeType: "application/json" }
+                generationConfig
               })
             }
           );
@@ -910,7 +904,7 @@ Return ONLY valid JSON matching this schema:
   ]
 }`;
 
-      const rawResponse = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Return valid JSON only.");
+      const rawResponse = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Return valid JSON only.", true);
       const parsedData = extractJsonFromText(rawResponse);
 
       if (parsedData?.ideas && Array.isArray(parsedData.ideas) && parsedData.ideas.length > 0) {
@@ -1037,7 +1031,7 @@ Return ONLY valid JSON matching this exact structure:
   }
 }`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.", true);
       const parsed = extractJsonFromText(raw);
 
       if (parsed?.unitEconomics) {
@@ -1078,6 +1072,56 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
+  // Tab 4: Dynamic 10-Day Launch Sprint
+  const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
+  const [sprintFilter, setSprintFilter] = useState("all");
+  const [taskAdviceModal, setTaskAdviceModal] = useState(null);
+  const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
+  const [isGeneratingSprint, setIsGeneratingSprint] = useState(false);
+
+  const handleGenerateDynamicSprint = async (ventureTitle, city) => {
+    if (!canPerformEvaluation()) return;
+    setIsGeneratingSprint(true);
+    const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
+    const prompt = `Create an exhaustive, hyper-practical 10-Day Step-by-Step launch sprint for this business:
+Business: "${ventureTitle}"
+City / Location: "${targetCityClean}", India.
+
+Tailor each day specifically to this exact business model and city context (e.g. mention actual local wholesale markets, specific permits like FSSAI if food, Indiamart/APMC raw materials, equipment test runs, and marketing scripts).
+
+Return ONLY valid JSON matching this schema:
+{
+  "sprint": [
+    {
+      "id": "day_1",
+      "dayNumber": 1,
+      "dayTitle": "Day 1: Ground Demand Validation & Customer Survey",
+      "phase": "Phase 1: Validation",
+      "task": "Hyper-specific action for ${ventureTitle} in ${targetCityClean}.",
+      "timeEst": "3.5 hrs",
+      "budgetEst": "₹300 - ₹500",
+      "priority": "Critical",
+      "completed": false
+    }
+  ]
+}
+Ensure exactly 10 items from Day 1 to Day 10 without skipping any day.`;
+
+    try {
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager for Indian SMEs. Return JSON only.", true);
+      const parsed = extractJsonFromText(raw);
+      if (parsed?.sprint && Array.isArray(parsed.sprint) && parsed.sprint.length === 10) {
+        setDailySprintTasks(parsed.sprint);
+        localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(parsed.sprint));
+        await recordEvaluationUsage();
+      }
+    } catch (err) {
+      console.warn("Failed to generate custom dynamic sprint:", err);
+    } finally {
+      setIsGeneratingSprint(false);
+    }
+  };
+
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
@@ -1088,6 +1132,8 @@ Return ONLY valid JSON matching this exact structure:
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setScoutDemographic(idea.targetAudience || "Daily consumers & commuters in this city");
     setScoutNeeds(`Optimized for ${idea.category} operations, high target-audience footfall, direct visibility`);
+
+    handleGenerateDynamicSprint(idea.title, finderLocation);
     setActiveTab("location-scout");
   };
 
@@ -1127,7 +1173,7 @@ Return ONLY valid JSON:
   ]
 }`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand Strategist. Return JSON only.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand Strategist. Return JSON only.", true);
       const parsed = extractJsonFromText(raw);
 
       if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
@@ -1221,7 +1267,7 @@ Return ONLY valid JSON matching this schema:
   }
 }`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.", true);
       const parsed = extractJsonFromText(raw);
 
       if (parsed?.viabilityScore) {
@@ -1272,12 +1318,6 @@ Return ONLY valid JSON matching this schema:
     }
   };
 
-  // Tab 4: 10-Day Sprint
-  const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
-  const [sprintFilter, setSprintFilter] = useState("all");
-  const [taskAdviceModal, setTaskAdviceModal] = useState(null);
-  const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
-
   const toggleDailyTask = (id) => {
     const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
@@ -1292,6 +1332,7 @@ Return ONLY valid JSON matching this schema:
   };
 
   const handleConsultDailyTaskAI = async (taskItem) => {
+    if (!canPerformEvaluation()) return;
     setIsLoadingTaskAdvice(true);
     setTaskAdviceModal({ title: taskItem.dayTitle, phase: taskItem.phase, sopText: "" });
 
@@ -1308,12 +1349,13 @@ Provide:
 3. 2 ground pitfalls to avoid.
 4. Completion metric.`;
 
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager.", false);
       setTaskAdviceModal({
         title: taskItem.dayTitle,
         phase: taskItem.phase,
         sopText: raw || `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.`
       });
+      await recordEvaluationUsage();
     } catch (err) {
       setTaskAdviceModal((prev) => prev ? { ...prev, sopText: "Unable to retrieve SOP. Please try again." } : null);
     } finally {
@@ -1353,13 +1395,15 @@ Provide:
   const [ledgerType, setLedgerType] = useState("in");
 
   const handleRunMarginDoctorAI = async () => {
+    if (!canPerformEvaluation()) return;
     setIsAnalyzingMargin(true);
     try {
       const totalCost = Number(costPrice) + Number(shippingCost);
       const netMargin = (((Number(sellingPrice) - totalCost) / Number(sellingPrice)) * 100).toFixed(1);
       const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%. Provide profit buffer & RTO observations.`;
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.", false);
       setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 10-12% buffer for return-to-origin on cash-on-delivery orders.`);
+      await recordEvaluationUsage();
     } catch (err) {
       setAiMarginAnalysis("Pricing audit complete. Ensure vendor tax invoices are collected for Input Tax Credit.");
     } finally {
@@ -1368,12 +1412,14 @@ Provide:
   };
 
   const handleRunLedgerAuditAI = async () => {
+    if (!canPerformEvaluation()) return;
     setIsAuditingLedger(true);
     try {
       const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
       const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 observations on working capital and Udhaar control.`;
-      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor.");
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor.", false);
       setAiLedgerAudit(res || "Inflows are steady. Reconcile soundbox audio receipts at daily closing.");
+      await recordEvaluationUsage();
     } catch (err) {
       setAiLedgerAudit("Cashflow balance is healthy. Keep 30-45 days of fixed expenses in reserve.");
     } finally {
@@ -1413,15 +1459,17 @@ Provide:
   const [isScanningMarket, setIsScanningMarket] = useState(false);
 
   const handleScanLiveMarketAI = async () => {
+    if (!canPerformEvaluation()) return;
     setIsScanningMarket(true);
     try {
       const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output JSON:
 { "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.");
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.", true);
       const parsed = extractJsonFromText(raw);
       if (parsed?.updates && Array.isArray(parsed.updates)) {
         setMarketTrends(parsed.updates);
         localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
+        await recordEvaluationUsage();
       }
     } catch (e) {
     } finally {
@@ -1429,11 +1477,11 @@ Provide:
     }
   };
 
-  // 24/7 BizMentor Chat
+  // 24/7 DYNAMIC BIZMENTOR CHAT (TEXT-MODE WITH GREETING HANDLING)
   const [chatMessages, setChatMessages] = useState([
     {
       sender: "mentor",
-      text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about lease negotiations, Udhaar recovery scripts, GST filing, or Indiamart sourcing!"
+      text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about negotiations, pricing, permits, vendor sourcing, or local retail in India!"
     }
   ]);
   const [inputChat, setInputChat] = useState("");
@@ -1442,27 +1490,38 @@ Provide:
 
   const handleSendChat = async () => {
     if (!inputChat.trim()) return;
-    const userText = inputChat;
+    if (!canPerformEvaluation()) return;
+
+    const userText = inputChat.trim();
     setInputChat("");
     setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
     setIsChatLoading(true);
 
     try {
-      const prompt = `Question from Indian Entrepreneur: ${userText}\nVenture: ${selectedVenture ? selectedVenture.title : "Indian SME"}\nProvide actionable, culturally astute advice for Indian SME operations.`;
-      const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.");
+      const prompt = `User said: "${userText}".
+Venture context: ${selectedVenture ? selectedVenture.title : "Indian SME"}.
+Reply warmly, naturally, and helpfully as BizMentor AI. If the user greeted with 'Hi', 'Hello', 'Namaste' or similar, respond with a friendly greeting in Hinglish/English and ask what specific challenge or business question they are working on today. DO NOT output the default credit/udhaar ledger paragraph unless the user specifically asks about credit, udhaar, or payments.`;
+
+      const res = await callGeminiAI(
+        prompt,
+        "You are BizMentor AI, an expert Indian small business advisor and friendly peer.",
+        false
+      );
+
       setChatMessages((prev) => [
         ...prev,
         {
           sender: "mentor",
-          text: res || "Always maintain a strict credit ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests politely."
+          text: res || "Namaste! Main aapke business me kya madad kar sakta hoon? Kripya apna sawal puchein."
         }
       ]);
+      await recordEvaluationUsage();
     } catch (err) {
       setChatMessages((prev) => [
         ...prev,
         {
           sender: "mentor",
-          text: "Ensure prominent UPI QR display with instant soundbox confirmation."
+          text: "Namaste! Main aapke business me kya madad kar sakta hoon? Kripya apna sawal puchein."
         }
       ]);
     } finally {
@@ -1555,7 +1614,6 @@ Provide:
               </div>
             )}
 
-            {/* SIGN UP */}
             {authMode === "signup" ? (
               signupStep === 1 ? (
                 <form onSubmit={handleSignupRequestOtp} className="space-y-3.5 text-xs">
@@ -1952,7 +2010,7 @@ Provide:
                 <p className="text-slate-400 text-[11px]">
                   {remainingEvaluations > 0 ? (
                     <>
-                      You have <strong className="text-amber-400">{remainingEvaluations} of {FREE_USAGE_LIMIT} free evaluations remaining</strong>. Every AI analysis, idea generation, or location scout uses 1 evaluation.
+                      You have <strong className="text-amber-400">{remainingEvaluations} of {FREE_USAGE_LIMIT} free evaluations remaining</strong>. Every AI analysis, calculator check, or market radar uses 1 evaluation.
                     </>
                   ) : (
                     <span className="text-rose-400 font-semibold">
@@ -1982,9 +2040,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB: ADMINISTRATIVE WORKS (DIRECT MONGODB HANDLING)       */}
-        {/* ========================================================= */}
+        {/* TAB: ADMINISTRATIVE WORKS */}
         {activeTab === "admin-works" && isAdminUser && (
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-rose-950/40 via-red-950/30 to-slate-900 border border-rose-500/40 rounded-3xl p-6 shadow-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -2063,7 +2119,6 @@ Provide:
               </button>
             </div>
 
-            {/* SUB-TAB 1: PAYMENT APPROVALS */}
             {adminSubTab === "txns" && (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
@@ -2170,7 +2225,6 @@ Provide:
               </div>
             )}
 
-            {/* SUB-TAB 2: REGISTERED USERS & EVALUATION RESET */}
             {adminSubTab === "users" && (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <div className="border-b border-slate-800 pb-4">
@@ -2269,7 +2323,6 @@ Provide:
               </div>
             )}
 
-            {/* SUB-TAB 3: MANUAL PRO GRANT FORM */}
             {adminSubTab === "manual" && (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg space-y-4 shadow-xl text-xs">
                 <div>
@@ -2317,9 +2370,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 1: 6-INPUT AI IDEA MATCHER + DEEP ANALYSIS            */}
-        {/* ========================================================= */}
+        {/* TAB 1: 6-INPUT AI IDEA MATCHER */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -2424,7 +2475,6 @@ Provide:
                 </form>
               </div>
 
-              {/* Ideas Output */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
@@ -2492,7 +2542,6 @@ Provide:
               </div>
             </div>
 
-            {/* Deep Analysis Modal */}
             {deepAnalysisIdea && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[110] flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 relative shadow-2xl text-xs">
@@ -2645,9 +2694,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 2: DEMAND LOCATION SCOUT                              */}
-        {/* ========================================================= */}
+        {/* TAB 2: DEMAND LOCATION SCOUT */}
         {activeTab === "location-scout" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -2742,7 +2789,6 @@ Provide:
                 </form>
               </div>
 
-              {/* Results Output Column */}
               <div className="lg:col-span-7 space-y-4">
                 {scoutResults?.cityDemandOverview && (
                   <div className="bg-slate-900/90 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed shadow-lg">
@@ -2829,9 +2875,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 3: BUSINESS EVALUATOR & RISK MATRIX                   */}
-        {/* ========================================================= */}
+        {/* TAB 3: BUSINESS EVALUATOR & RISK MATRIX */}
         {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -2909,7 +2953,6 @@ Provide:
                 </form>
               </div>
 
-              {/* Evaluation Output Column */}
               <div className="lg:col-span-7">
                 {analysisResult ? (
                   <div id="printable-report" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl text-xs">
@@ -3038,9 +3081,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 4: 10-DAY STEP-BY-STEP LAUNCH SPRINT                  */}
-        {/* ========================================================= */}
+        {/* TAB 4: 10-DAY DYNAMIC AI LAUNCH SPRINT */}
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
@@ -3051,15 +3092,26 @@ Provide:
                     <span>The 10-Day Indian Launch Sprint</span>
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
-                    Complete Day 1 through Day 10 execution blueprint with field checklists & Hinglish scripts.
+                    {selectedVenture
+                      ? `Dynamically generated specifically for "${selectedVenture.title}" in ${targetCity}.`
+                      : "Chronological Day 1 through Day 10 execution blueprint with field checklists & scripts."}
                   </p>
                 </div>
 
                 <div className="flex items-center space-x-2">
                   <button
                     type="button"
+                    disabled={isGeneratingSprint}
+                    onClick={() => handleGenerateDynamicSprint(selectedVenture?.title || businessIdea || "My Indian Enterprise", targetCity)}
+                    className="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 cursor-pointer transition"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingSprint ? "animate-spin" : ""}`} />
+                    <span>{isGeneratingSprint ? "Generating with AI..." : "Regenerate with AI 🤖"}</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={resetSprintTasks}
-                    className="text-xs text-slate-400 hover:text-slate-200 border border-slate-800 px-3 py-1.5 rounded-xl cursor-pointer"
+                    className="text-xs text-slate-400 hover:text-slate-200 border border-slate-800 px-2.5 py-1.5 rounded-xl cursor-pointer"
                   >
                     Reset
                   </button>
@@ -3196,9 +3248,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 5: CALCULATORS & DAILY LEDGER                         */}
-        {/* ========================================================= */}
+        {/* TAB 5: CALCULATORS & DAILY LEDGER */}
         {activeTab === "tools" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-xs">
@@ -3343,9 +3393,7 @@ Provide:
           </div>
         )}
 
-        {/* ========================================================= */}
-        {/* TAB 6: LIVE AI MARKET RADAR                               */}
-        {/* ========================================================= */}
+        {/* TAB 6: LIVE AI MARKET RADAR */}
         {activeTab === "market" && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-4">
