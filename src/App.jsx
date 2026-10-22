@@ -58,6 +58,7 @@ const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
+const ADMIN_SECRET_KEY = "admin123";
 
 // Read from Vercel environment variable
 const VERCEL_ENV_GEMINI_KEY =
@@ -71,7 +72,7 @@ const PAYMENT_LINKS = {
   quarterlyPro: "https://rzp.io/rzp/wkdIZLD"   // ₹599
 };
 
-// Robust helper to extract clean JSON from LLM responses containing markdown/preambles
+// --- TOP-LEVEL HELPER FUNCTIONS (DECLARED ONCE) ---
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
   try {
@@ -89,6 +90,21 @@ function extractJsonFromText(rawText) {
   return null;
 }
 
+function formatCountdown(secs) {
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+}
+
+function safeGetStorage(key, fallback) {
+  try {
+    const val = localStorage.getItem(key);
+    return val ? JSON.parse(val) : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+
 export default function BizNavigatorApp() {
   // Clear any legacy client-side Pro leakage on boot
   useEffect(() => {
@@ -96,10 +112,7 @@ export default function BizNavigatorApp() {
   }, []);
 
   // 1. AUTHENTICATION & SESSION
-  const [currentUser, setCurrentUser] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [currentUser, setCurrentUser] = useState(() => safeGetStorage(`${STORAGE_PREFIX}user`, null));
 
   const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'forgot', 'admin'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
@@ -110,7 +123,7 @@ export default function BizNavigatorApp() {
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Real Email OTP States
+  // Real Email OTP States for Forgot Password
   const [otpStep, setOtpStep] = useState(1);
   const [enteredOtp, setEnteredOtp] = useState("");
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
@@ -119,7 +132,7 @@ export default function BizNavigatorApp() {
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
 
-  // Registration OTP States
+  // Real Email OTP States for Signup
   const [signupStep, setSignupStep] = useState(1);
   const [signupEnteredOtp, setSignupEnteredOtp] = useState("");
   const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
@@ -127,8 +140,8 @@ export default function BizNavigatorApp() {
   const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
   // Subscriptions & Users synced from MongoDB
-  const [submittedTxns, setSubmittedTxns] = useState([]);
-  const [registeredUsersList, setRegisteredUsersList] = useState([]);
+  const [submittedTxns, setSubmittedTxns] = useState(() => safeGetStorage(`${STORAGE_PREFIX}all_txns`, []));
+  const [registeredUsersList, setRegisteredUsersList] = useState(() => safeGetStorage(`${STORAGE_PREFIX}registered_users`, []));
 
   // Modals & Panels
   const [showPaywallModal, setShowPaywallModal] = useState(false);
@@ -141,13 +154,10 @@ export default function BizNavigatorApp() {
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // App Navigation
+  // Navigation
   const [activeTab, setActiveTab] = useState(() => {
-    const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed?.role?.toLowerCase() === "admin") return "admin-works";
-    }
+    const user = safeGetStorage(`${STORAGE_PREFIX}user`, null);
+    if (user?.role?.toLowerCase() === "admin") return "admin-works";
     return "idea-finder";
   });
 
@@ -180,6 +190,10 @@ export default function BizNavigatorApp() {
       )
     : null;
 
+  // Active Venture State (Pipeline across tabs)
+  const [selectedVenture, setSelectedVenture] = useState(() => safeGetStorage(`${STORAGE_PREFIX}selected_venture`, null));
+
+  // Sync state to local storage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
@@ -188,13 +202,22 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    if (selectedVenture) {
+      localStorage.setItem(`${STORAGE_PREFIX}selected_venture`, JSON.stringify(selectedVenture));
+    }
+  }, [selectedVenture]);
+
   // Sync DB records from backend API
   const fetchDbData = async () => {
     try {
       const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
       if (txnsRes.ok) {
         const txns = await txnsRes.json();
-        if (Array.isArray(txns)) setSubmittedTxns(txns);
+        if (Array.isArray(txns)) {
+          setSubmittedTxns(txns);
+          localStorage.setItem(`${STORAGE_PREFIX}all_txns`, JSON.stringify(txns));
+        }
       }
     } catch (err) {}
 
@@ -203,7 +226,10 @@ export default function BizNavigatorApp() {
         const usersRes = await fetch(`${API_BASE_URL}/admin/users`);
         if (usersRes.ok) {
           const users = await usersRes.json();
-          if (Array.isArray(users)) setRegisteredUsersList(users);
+          if (Array.isArray(users)) {
+            setRegisteredUsersList(users);
+            localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(users));
+          }
         }
       }
     } catch (err) {}
@@ -213,7 +239,7 @@ export default function BizNavigatorApp() {
     if (currentUser) fetchDbData();
   }, [currentUser]);
 
-  // Timers for OTP
+  // Countdown Timers
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -238,21 +264,217 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupResendCooldown]);
 
-  // Active Venture State (Pipeline across tabs)
-  const [selectedVenture, setSelectedVenture] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}selected_venture`);
-    return cached ? JSON.parse(cached) : null;
-  });
+  // ==========================================
+  // BACKEND-BASED AUTHENTICATION HANDLERS
+  // ==========================================
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+    setIsAuthLoading(true);
 
-  useEffect(() => {
-    if (selectedVenture) {
-      localStorage.setItem(`${STORAGE_PREFIX}selected_venture`, JSON.stringify(selectedVenture));
+    const isAdminRequest =
+      authMode === "admin" ||
+      authEmailOrPhone.trim().toLowerCase() === "admin" ||
+      authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL;
+
+    const emailToSend = isAdminRequest ? ADMIN_EMAIL : authEmailOrPhone.trim();
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailOrPhone: emailToSend,
+          password: authPassword.trim(),
+          isAdminMode: isAdminRequest
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Authentication failed.");
+
+      setCurrentUser(data.user);
+      setAuthPassword("");
+
+      if (data.user?.role?.toLowerCase() === "admin") {
+        setActiveTab("admin-works");
+        setShowAdminConsoleModal(true);
+      } else {
+        setActiveTab("idea-finder");
+      }
+      fetchDbData();
+    } catch (err) {
+      setAuthError(err.message || "Login failed. Check server connection and credentials.");
+    } finally {
+      setIsAuthLoading(false);
     }
-  }, [selectedVenture]);
+  };
 
-  // ==============================================================
-  // GEMINI AI CALLER (USES VERCEL GEMINI_API_KEY ON BACKEND)
-  // ==============================================================
+  const handleSignupRequestOtp = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+
+    if (!authFullName.trim() || !authEmailOrPhone.trim() || !authPassword.trim()) {
+      setAuthError("Please fill in all mandatory fields.");
+      return;
+    }
+
+    if (authPassword.length < 4) {
+      setAuthError("Password must be at least 4 characters long.");
+      return;
+    }
+
+    setIsSendingSignupOtp(true);
+    try {
+      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmailOrPhone, name: authFullName })
+      });
+
+      if (!res.ok) {
+        res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: authEmailOrPhone })
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP.");
+
+      setSignupStep(2);
+      setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
+      setSignupResendCooldown(30);
+      setAuthSuccessNotice(`A real verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsSendingSignupOtp(false);
+    }
+  };
+
+  const handleSignupVerifyAndRegister = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+
+    if (signupOtpSecondsLeft <= 0) {
+      setAuthError("OTP code has expired. Please request a new verification code.");
+      return;
+    }
+
+    if (!signupEnteredOtp || signupEnteredOtp.trim().length !== 6) {
+      setAuthError("Please enter the complete 6-digit OTP code received in your email.");
+      return;
+    }
+
+    setIsAuthLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: authFullName,
+          emailOrPhone: authEmailOrPhone,
+          businessName: authBusinessName,
+          password: authPassword,
+          otp: signupEnteredOtp.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verification failed. Invalid OTP code.");
+
+      setCurrentUser(data.user);
+      setAuthPassword("");
+      setSignupEnteredOtp("");
+      setSignupStep(1);
+      setActiveTab("idea-finder");
+      alert(`Welcome to BizNavigator, ${data.user.name}! Your account is ready.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  const handleForgotRequestOtp = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+    setIsSendingOtp(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmailOrPhone })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to dispatch OTP email.");
+
+      setOtpStep(2);
+      setOtpSecondsLeft(data.expiresInSeconds || 300);
+      setResendCooldown(30);
+      setAuthSuccessNotice(`A real verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsSendingOtp(false);
+    }
+  };
+
+  const handleForgotVerifyAndReset = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+
+    if (resetNewPassword !== resetConfirmPassword) {
+      setAuthError("Passwords do not match.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmailOrPhone,
+          otp: enteredOtp,
+          newPassword: resetNewPassword
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Password reset failed.");
+
+      setOtpStep(1);
+      setEnteredOtp("");
+      setResetNewPassword("");
+      setResetConfirmPassword("");
+      setAuthMode("login");
+      setAuthPassword("");
+      setAuthSuccessNotice("Password verified and updated in MongoDB! Please log in with your new password.");
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
+
+  const handleLogout = () => {
+    if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
+      setCurrentUser(null);
+      localStorage.removeItem(`${STORAGE_PREFIX}user`);
+      setActiveTab("idea-finder");
+      setShowAdminConsoleModal(false);
+    }
+  };
+
+  // ==========================================
+  // GEMINI AI CALLER (USES VERCEL GEMINI_API_KEY)
+  // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
@@ -294,7 +516,7 @@ export default function BizNavigatorApp() {
       console.warn("Backend AI call failed, checking client env:", err);
     }
 
-    // 2. Direct Fallback if Vercel client variable is present
+    // 2. Direct Fallback via Vercel Client Variable
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
       const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
@@ -342,10 +564,7 @@ export default function BizNavigatorApp() {
   const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
   const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
-  const [matchedIdeas, setMatchedIdeas] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_6inputs`);
-    return cached ? JSON.parse(cached) : null;
-  });
+  const [matchedIdeas, setMatchedIdeas] = useState(() => safeGetStorage(`${STORAGE_PREFIX}matched_ideas_6inputs`, null));
 
   const handleGenerateIdeas = async (e) => {
     e.preventDefault();
@@ -463,7 +682,6 @@ Return ONLY valid JSON matching this schema:
     setIsFindingIdeas(false);
   };
 
-  // Connects chosen idea across all other features
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
@@ -482,10 +700,7 @@ Return ONLY valid JSON matching this schema:
   const [scoutBudgetRent, setScoutBudgetRent] = useState("25000");
   const [scoutTrafficType, setScoutTrafficType] = useState("Corporate Tech Park / Startup Office Crowd");
   const [isScoutingLocations, setIsScoutingLocations] = useState(false);
-  const [scoutResults, setScoutResults] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}location_scout`);
-    return cached ? JSON.parse(cached) : null;
-  });
+  const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout`, null));
 
   const handleEvaluateLocations = async (e) => {
     e.preventDefault();
@@ -544,12 +759,9 @@ Return ONLY valid JSON:
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
   const [initialCapital, setInitialCapital] = useState("150000");
-  const [customerSegment, setCustomerSegment] = useState("B2C Working Professionals");
+  const [customerSegment, setCustomerSegment] = useState("B2C Young Working Professionals");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisResult, setAnalysisResult] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}last_analysis`);
-    return cached ? JSON.parse(cached) : null;
-  });
+  const [analysisResult, setAnalysisResult] = useState(() => safeGetStorage(`${STORAGE_PREFIX}last_analysis`, null));
 
   const handleEvaluateIdea = async (e) => {
     e.preventDefault();
@@ -561,7 +773,7 @@ Return ONLY valid JSON:
 {
   "viabilityScore": 8.5,
   "competitionScore": 7.0,
-  "summary": "2-sentence market verdict.",
+  "summary": "Brief 2-sentence market verdict.",
   "estimatedMarginPercent": "35-45%",
   "breakEvenMonths": "4 to 6 Months",
   "capex": [{"item": "Machinery/Equipment", "cost": "₹60,000"}],
@@ -580,7 +792,7 @@ Return ONLY valid JSON:
       setAnalysisResult({
         viabilityScore: 8.4,
         competitionScore: 6.8,
-        summary: `Strong consumer demand in ${targetCity}. Given your capital of ₹${numCap.toLocaleString("en-IN")}, focus on lean direct distribution before taking on expensive long-term lease commitments.`,
+        summary: `High domestic demand in ${targetCity}. Given your capital of ₹${numCap.toLocaleString("en-IN")}, focus on lean direct distribution.`,
         estimatedMarginPercent: "32% - 44%",
         breakEvenMonths: "5 to 6 Months",
         capex: [
@@ -598,24 +810,19 @@ Return ONLY valid JSON:
   };
 
   // --- TAB 4: SPRINT TASKS ---
-  const [dailySprintTasks, setDailySprintTasks] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}daily_sprint`);
-    return cached
-      ? JSON.parse(cached)
-      : [
-          {
-            id: "day_1",
-            dayTitle: "Day 1: Ground Demand Validation",
-            phase: "Phase 1: Validation",
-            task: "Survey 20 target customers in target zone.",
-            timeEst: "3.5 hrs",
-            budgetEst: "₹300",
-            priority: "Critical",
-            completed: false,
-            notes: ""
-          }
-        ];
-  });
+  const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint`, [
+    {
+      id: "day_1",
+      dayTitle: "Day 1: Ground Demand Validation",
+      phase: "Phase 1: Validation",
+      task: "Survey 20 target customers in target zone.",
+      timeEst: "3.5 hrs",
+      budgetEst: "₹300",
+      priority: "Critical",
+      completed: false,
+      notes: ""
+    }
+  ]));
 
   const [roadmapFilter, setRoadmapFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
@@ -683,13 +890,10 @@ Include:
   const [aiLedgerAudit, setAiLedgerAudit] = useState("");
   const [isAuditingLedger, setIsAuditingLedger] = useState(false);
 
-  const [ledgerEntries, setLedgerEntries] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}ledger`);
-    return cached ? JSON.parse(cached) : [
-      { id: 1, desc: "Packaging Cartons Purchase", type: "out", amount: 4500, date: "Today" },
-      { id: 2, desc: "Direct UPI Order Payments", type: "in", amount: 12400, date: "Today" }
-    ];
-  });
+  const [ledgerEntries, setLedgerEntries] = useState(() => safeGetStorage(`${STORAGE_PREFIX}ledger`, [
+    { id: 1, desc: "Packaging Cartons Purchase", type: "out", amount: 4500, date: "Today" },
+    { id: 2, desc: "Direct UPI Order Payments", type: "in", amount: 12400, date: "Today" }
+  ]));
   const [ledgerDesc, setLedgerDesc] = useState("");
   const [ledgerAmount, setLedgerAmount] = useState("");
   const [ledgerType, setLedgerType] = useState("in");
@@ -729,28 +933,23 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
   const breakEvenUnitsNeeded = unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
 
   // --- TAB 6: LIVE AI MARKET RADAR ---
-  const [marketTrends, setMarketTrends] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}market_trends`);
-    return cached
-      ? JSON.parse(cached)
-      : [
-          {
-            tag: "Logistics",
-            title: "ONDC Hyperlocal Integration Subsidies",
-            desc: "Local kiranas & retailers utilizing ONDC logistics aggregators can ship within a 5km radius for under ₹30/order."
-          },
-          {
-            tag: "Compliance",
-            title: "IMS (Invoice Management System) Mandate",
-            desc: "New GST input matching rules mandate real-time acceptance of vendor invoices to ensure seamless ITC claims."
-          },
-          {
-            tag: "Festive Trends",
-            title: "Pre-Season Packaging Inventory Buffer",
-            desc: "Corrugated box rates routinely surge prior to peak wedding and festival quarters. Lock in 60-day stock early."
-          }
-        ];
-  });
+  const [marketTrends, setMarketTrends] = useState(() => safeGetStorage(`${STORAGE_PREFIX}market_trends`, [
+    {
+      tag: "Logistics",
+      title: "ONDC Hyperlocal Integration Subsidies",
+      desc: "Local kiranas & retailers utilizing ONDC logistics aggregators can ship within a 5km radius for under ₹30/order."
+    },
+    {
+      tag: "Compliance",
+      title: "IMS (Invoice Management System) Mandate",
+      desc: "New GST input matching rules mandate real-time acceptance of vendor invoices to ensure seamless ITC claims."
+    },
+    {
+      tag: "Festive Trends",
+      title: "Pre-Season Packaging Inventory Buffer",
+      desc: "Corrugated box rates routinely surge prior to peak wedding and festival quarters. Lock in 60-day stock early."
+    }
+  ]));
   const [isScanningMarket, setIsScanningMarket] = useState(false);
 
   const handleScanLiveMarketAI = async () => {
@@ -794,13 +993,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     setIsChatLoading(false);
   };
 
-  // Helper for OTP countdown display
-  const formatCountdown = (secs) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
-
   // ==============================================================
   // ADMIN CONTROL ACTIONS (MONGODB CONNECTED)
   // ==============================================================
@@ -817,7 +1009,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     } catch (e) {
       const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "approved" } : t));
       setSubmittedTxns(updated);
-      alert("Updated transaction status.");
+      alert("Updated transaction status in local state.");
     }
   };
 
@@ -834,7 +1026,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     } catch (e) {
       const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "rejected" } : t));
       setSubmittedTxns(updated);
-      alert("Updated transaction status.");
+      alert("Updated transaction status in local state.");
     }
   };
 
@@ -1217,7 +1409,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     setActiveTab("admin-works");
                     setShowAdminConsoleModal(true);
                   }}
-                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20"
+                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 cursor-pointer"
                 >
                   <Settings className="w-3.5 h-3.5" />
                   <span>Administrative Works ⚙️</span>
@@ -1320,7 +1512,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
       {/* Main Body */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* TAB: ADMIN WORKS */}
+        {/* TAB: ADMIN WORKS (ACCESSIBLE TO ADMIN AT ALL TIMES) */}
         {activeTab === "admin-works" && isAdminUser && (
           <div className="space-y-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4">
@@ -1351,13 +1543,20 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       <div className="flex items-center space-x-2">
                         {txn.status !== "approved" ? (
                           <button
+                            type="button"
                             onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
-                            className="bg-emerald-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl"
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
                           >
                             Approve Pro
                           </button>
                         ) : (
-                          <span className="text-emerald-400 font-bold">Approved</span>
+                          <button
+                            type="button"
+                            onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
+                            className="bg-rose-950 border border-rose-500/40 text-rose-400 font-bold px-3 py-1.5 rounded-xl cursor-pointer"
+                          >
+                            Revoke Pro
+                          </button>
                         )}
                       </div>
                     </div>
@@ -1372,6 +1571,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
@@ -1408,6 +1608,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       required
                       value={finderSkills}
                       onChange={(e) => setFinderSkills(e.target.value)}
+                      placeholder="e.g. Sales, Cooking, Accounting, Tech, Social Media"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
@@ -1419,6 +1620,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       required
                       value={finderInterests}
                       onChange={(e) => setFinderInterests(e.target.value)}
+                      placeholder="e.g. Healthy Food, Packaging, Fitness, Apparel"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
@@ -1459,7 +1661,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating with AI...</span>
+                        <span>Evaluating 6 Inputs with AI...</span>
                       </>
                     ) : (
                       <>
@@ -1511,8 +1713,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
                         <div className="flex justify-end pt-2">
                           <button
+                            type="button"
                             onClick={() => handleChooseVenture(idea)}
-                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5"
+                            className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
                           >
                             <span>{isSelected ? "Active Venture Selected 🚀" : "Choose This Idea & Build Plan 🚀"}</span>
                             <ArrowRight className="w-3.5 h-3.5" />
@@ -1605,8 +1808,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                     <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
                     <button
+                      type="button"
                       onClick={() => window.print()}
-                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1"
+                      className="px-3 py-1.5 rounded-lg border border-slate-700 text-xs text-slate-300 hover:bg-slate-800 flex items-center space-x-1 cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
                       <span>Print PDF</span>
@@ -1641,7 +1845,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 {dailySprintTasks.map((t) => (
                   <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 flex justify-between items-center text-xs">
                     <div className="flex items-center space-x-3">
-                      <button onClick={() => toggleDailyTask(t.id)}>
+                      <button type="button" onClick={() => toggleDailyTask(t.id)}>
                         {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
                       </button>
                       <div>
@@ -1650,8 +1854,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleConsultDailyTaskAI(t)}
-                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1"
+                      className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl font-semibold flex items-center space-x-1 cursor-pointer"
                     >
                       <Bot className="w-3.5 h-3.5" />
                       <span>AI SOP</span>
@@ -1664,7 +1869,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
-                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
+                  <button type="button" onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
                   <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
                   <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
                     {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
@@ -1683,9 +1888,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-slate-100 text-sm">Profit Margin Calculator</h3>
                   <button
+                    type="button"
                     onClick={handleRunMarginDoctorAI}
                     disabled={isAnalyzingMargin}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1"
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
                   >
                     <Bot className="w-3.5 h-3.5" />
                     <span>{isAnalyzingMargin ? "Auditing..." : "Run AI Price Audit"}</span>
@@ -1739,9 +1945,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </h3>
                 <div className="flex items-center space-x-3">
                   <button
+                    type="button"
                     onClick={handleRunLedgerAuditAI}
                     disabled={isAuditingLedger}
-                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1"
+                    className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center space-x-1 cursor-pointer"
                   >
                     <Bot className="w-3.5 h-3.5" />
                     <span>{isAuditingLedger ? "Auditing..." : "Run AI Cashflow Audit"}</span>
@@ -1776,6 +1983,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <option value="out">Cash Out (-)</option>
                 </select>
                 <button
+                  type="button"
                   onClick={() => {
                     if (!ledgerDesc || !ledgerAmount) return;
                     setLedgerEntries([
@@ -1785,7 +1993,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     setLedgerDesc("");
                     setLedgerAmount("");
                   }}
-                  className="sm:col-span-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center justify-center p-2"
+                  className="sm:col-span-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl flex items-center justify-center p-2 cursor-pointer"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
@@ -1812,9 +2020,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 </h2>
               </div>
               <button
+                type="button"
                 onClick={handleScanLiveMarketAI}
                 disabled={isScanningMarket}
-                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-2 shadow-md transition"
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-2 shadow-md transition cursor-pointer"
               >
                 {isScanningMarket ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
                 <span>Scan Market Radar Now</span>
@@ -1840,8 +2049,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       <div className="fixed bottom-5 right-5 z-50">
         {!isChatOpen ? (
           <button
+            type="button"
             onClick={() => setIsChatOpen(true)}
-            className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold px-4 py-3 rounded-full shadow-2xl flex items-center space-x-2 transition transform hover:scale-105"
+            className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold px-4 py-3 rounded-full shadow-2xl flex items-center space-x-2 transition transform hover:scale-105 cursor-pointer"
           >
             <MessageSquare className="w-5 h-5" />
             <span className="text-sm">Ask BizMentor AI 🇮🇳</span>
@@ -1853,7 +2063,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
                 <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
               </div>
-              <button onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-200 p-1">
+              <button type="button" onClick={() => setIsChatOpen(false)} className="text-slate-400 hover:text-slate-200 p-1 cursor-pointer">
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -1887,7 +2097,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
                 className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
               />
-              <button onClick={handleSendChat} className="bg-amber-500 hover:bg-amber-400 text-slate-950 p-2 rounded-xl">
+              <button type="button" onClick={handleSendChat} className="bg-amber-500 hover:bg-amber-400 text-slate-950 p-2 rounded-xl cursor-pointer">
                 <Send className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -1899,7 +2109,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       {showPaywallModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full space-y-6 relative shadow-2xl">
-            <button onClick={() => setShowPaywallModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+            <button type="button" onClick={() => setShowPaywallModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 cursor-pointer">
               <X className="w-5 h-5" />
             </button>
 
@@ -1920,8 +2130,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-slate-500">24 Hours Access</span>
                 </div>
                 <button
+                  type="button"
                   onClick={() => { window.open(PAYMENT_LINKS.dayPass, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
                 >
                   <span>Pay ₹49</span>
                   <ExternalLink className="w-3 h-3" />
@@ -1938,8 +2149,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-slate-400">Unlimited evaluations</span>
                 </div>
                 <button
+                  type="button"
                   onClick={() => { window.open(PAYMENT_LINKS.monthlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
                 >
                   <span>Pay ₹249</span>
                   <ExternalLink className="w-3 h-3" />
@@ -1953,8 +2165,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   <span className="text-[10px] text-emerald-400">Save 20%</span>
                 </div>
                 <button
+                  type="button"
                   onClick={() => { window.open(PAYMENT_LINKS.quarterlyPro, "_blank"); setShowPaywallModal(false); setShowVerificationModal(true); }}
-                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1"
+                  className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs py-2 rounded-xl font-bold flex items-center justify-center space-x-1 cursor-pointer"
                 >
                   <span>Pay ₹599</span>
                   <ExternalLink className="w-3 h-3" />
@@ -1964,8 +2177,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
 
             <div className="text-center pt-2">
               <button
+                type="button"
                 onClick={() => { setShowPaywallModal(false); setShowVerificationModal(true); setVerificationError(""); }}
-                className="text-xs text-slate-400 hover:text-amber-400 underline"
+                className="text-xs text-slate-400 hover:text-amber-400 underline cursor-pointer"
               >
                 Already paid? Submit Razorpay Payment ID for verification
               </button>
@@ -1978,7 +2192,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
       {showVerificationModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-md w-full space-y-4 relative shadow-2xl">
-            <button onClick={() => setShowVerificationModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200">
+            <button type="button" onClick={() => setShowVerificationModal(false)} className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 cursor-pointer">
               <X className="w-5 h-5" />
             </button>
 
@@ -2028,7 +2242,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               <button
                 type="submit"
                 disabled={isVerifying}
-                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+                className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 cursor-pointer"
               >
                 {isVerifying ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>Submit for Admin Approval</span>}
               </button>
@@ -2037,27 +2251,31 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* ADMIN CONSOLE MODAL */}
+      {/* ============================================================== */}
+      {/* ADMINISTRATIVE WORKS MODAL (GUARANTEED TO OPEN)                 */}
+      {/* ============================================================== */}
       {showAdminConsoleModal && isAdminUser && (
         <div className="fixed inset-0 bg-slate-950/85 z-[100] flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-2xl w-full space-y-4 text-xs">
             <div className="flex justify-between items-center border-b border-slate-800 pb-2">
               <h3 className="font-bold text-slate-100 text-sm">Administrative Works Console (MongoDB)</h3>
-              <button onClick={() => setShowAdminConsoleModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
+              <button type="button" onClick={() => setShowAdminConsoleModal(false)} className="cursor-pointer">
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
             </div>
 
             <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
               <button
                 type="button"
                 onClick={() => setAdminConsoleTab("txns")}
-                className={`px-3 py-1 rounded-lg font-bold ${adminConsoleTab === "txns" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
+                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "txns" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
               >
                 Transactions ({submittedTxns.length})
               </button>
               <button
                 type="button"
                 onClick={() => setAdminConsoleTab("users")}
-                className={`px-3 py-1 rounded-lg font-bold ${adminConsoleTab === "users" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
+                className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${adminConsoleTab === "users" ? "bg-rose-500 text-slate-950" : "text-slate-400"}`}
               >
                 Users ({registeredUsersList.length})
               </button>
@@ -2074,15 +2292,17 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     <div className="flex items-center space-x-2">
                       {txn.status !== "approved" ? (
                         <button
+                          type="button"
                           onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
-                          className="bg-emerald-500 text-slate-950 px-3 py-1 rounded-lg font-bold"
+                          className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-lg font-bold cursor-pointer"
                         >
                           Approve Pro
                         </button>
                       ) : (
                         <button
+                          type="button"
                           onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
-                          className="bg-rose-950 border border-rose-500/40 text-rose-400 px-3 py-1 rounded-lg font-bold"
+                          className="bg-rose-950 border border-rose-500/40 text-rose-400 px-3 py-1 rounded-lg font-bold cursor-pointer"
                         >
                           Revoke
                         </button>
@@ -2100,8 +2320,9 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       <div className="text-slate-400 text-[11px]">{u.emailOrPhone}</div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => handleAdminToggleUserPro(u.emailOrPhone)}
-                      className={`px-3 py-1 rounded-lg font-bold ${u.isProUser ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}
+                      className={`px-3 py-1 rounded-lg font-bold cursor-pointer ${u.isProUser ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40" : "bg-slate-800 text-slate-400"}`}
                     >
                       {u.isProUser ? "Pro Active (Revoke)" : "Grant Pro"}
                     </button>
