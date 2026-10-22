@@ -92,7 +92,7 @@ export default function BizNavigatorApp() {
   const [authSuccessNotice, setAuthSuccessNotice] = useState("");
   const [isAuthLoading, setIsAuthLoading] = useState(false);
 
-  // Real Email OTP States
+  // Forgot Password States
   const [otpStep, setOtpStep] = useState(1);
   const [enteredOtp, setEnteredOtp] = useState("");
   const [otpSecondsLeft, setOtpSecondsLeft] = useState(0);
@@ -100,6 +100,13 @@ export default function BizNavigatorApp() {
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [resetConfirmPassword, setResetConfirmPassword] = useState("");
+
+  // Registration OTP States (Same OTP Verification for Sign Up)
+  const [signupStep, setSignupStep] = useState(1); // 1 = Details Form, 2 = Email OTP Verification
+  const [signupEnteredOtp, setSignupEnteredOtp] = useState("");
+  const [signupOtpSecondsLeft, setSignupOtpSecondsLeft] = useState(0);
+  const [signupResendCooldown, setSignupResendCooldown] = useState(0);
+  const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
   // Subscriptions & Users synced from MongoDB
   const [submittedTxns, setSubmittedTxns] = useState([]);
@@ -178,6 +185,7 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
+  // Forgot password OTP countdown timer
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -190,9 +198,24 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [resendCooldown]);
 
+  // Signup OTP countdown timer
+  useEffect(() => {
+    if (signupOtpSecondsLeft <= 0) return;
+    const interval = setInterval(() => setSignupOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(interval);
+  }, [signupOtpSecondsLeft]);
+
+  useEffect(() => {
+    if (signupResendCooldown <= 0) return;
+    const interval = setInterval(() => setSignupResendCooldown((p) => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(interval);
+  }, [signupResendCooldown]);
+
   // ==========================================
   // REAL EMAIL OTP & AUTHENTICATION HANDLERS
   // ==========================================
+
+  // --- SIGN IN HANDLER ---
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -200,40 +223,21 @@ export default function BizNavigatorApp() {
     setIsAuthLoading(true);
 
     try {
-      if (authMode === "signup") {
-        const res = await fetch(`${API_BASE_URL}/auth/register`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: authFullName,
-            emailOrPhone: authEmailOrPhone,
-            businessName: authBusinessName,
-            password: authPassword
-          })
-        });
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailOrPhone: authEmailOrPhone,
+          password: authPassword,
+          isAdminMode: authMode === "admin"
+        })
+      });
 
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Registration failed.");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Login failed.");
 
-        setCurrentUser(data.user);
-        setAuthPassword("");
-      } else {
-        const res = await fetch(`${API_BASE_URL}/auth/login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            emailOrPhone: authEmailOrPhone,
-            password: authPassword,
-            isAdminMode: authMode === "admin"
-          })
-        });
-
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Login failed.");
-
-        setCurrentUser(data.user);
-        setAuthPassword("");
-      }
+      setCurrentUser(data.user);
+      setAuthPassword("");
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -241,7 +245,105 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // SEND REAL OTP TO EMAIL INBOX VIA HOST SMTP
+  // --- REGISTRATION STEP 1: SEND REAL EMAIL OTP ---
+  const handleSignupRequestOtp = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+
+    if (!authFullName.trim() || !authEmailOrPhone.trim() || !authPassword.trim()) {
+      setAuthError("Please fill in all mandatory fields.");
+      return;
+    }
+
+    if (authPassword.length < 4) {
+      setAuthError("Password must be at least 4 characters long.");
+      return;
+    }
+
+    setIsSendingSignupOtp(true);
+
+    try {
+      // First attempt dedicated registration OTP endpoint, with fallback to send-otp
+      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmailOrPhone,
+          name: authFullName
+        })
+      });
+
+      if (!res.ok) {
+        // Fallback to shared host OTP dispatcher
+        res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: authEmailOrPhone })
+        });
+      }
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP to email.");
+
+      setSignupStep(2);
+      setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
+      setSignupResendCooldown(30);
+      setAuthSuccessNotice(`A real verification OTP has been sent from our mail server to ${authEmailOrPhone}. Please check your inbox and spam folder.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsSendingSignupOtp(false);
+    }
+  };
+
+  // --- REGISTRATION STEP 2: VERIFY OTP & CREATE ACCOUNT IN MONGODB ---
+  const handleSignupVerifyAndRegister = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthSuccessNotice("");
+
+    if (signupOtpSecondsLeft <= 0) {
+      setAuthError("OTP code has expired. Please request a new verification code.");
+      return;
+    }
+
+    if (!signupEnteredOtp || signupEnteredOtp.trim().length !== 6) {
+      setAuthError("Please enter the complete 6-digit OTP code received in your email.");
+      return;
+    }
+
+    setIsAuthLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: authFullName,
+          emailOrPhone: authEmailOrPhone,
+          businessName: authBusinessName,
+          password: authPassword,
+          otp: signupEnteredOtp.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Verification failed. Invalid OTP code.");
+
+      setCurrentUser(data.user);
+      setAuthPassword("");
+      setSignupEnteredOtp("");
+      setSignupStep(1);
+      alert(`Welcome to BizNavigator, ${data.user.name}! Your account is verified and ready.`);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setIsAuthLoading(false);
+    }
+  };
+
+  // --- FORGOT PASSWORD STEP 1: SEND OTP ---
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -261,7 +363,7 @@ export default function BizNavigatorApp() {
       setOtpStep(2);
       setOtpSecondsLeft(data.expiresInSeconds || 300);
       setResendCooldown(30);
-      setAuthSuccessNotice(`A real verification OTP has been dispatched from our mail server to ${authEmailOrPhone}. Please check your inbox and spam folder.`);
+      setAuthSuccessNotice(`A real verification OTP has been sent from our mail server to ${authEmailOrPhone}. Please check your inbox and spam folder.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -269,7 +371,7 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // VERIFY OTP & RESET PASSWORD IN MONGODB
+  // --- FORGOT PASSWORD STEP 2: VERIFY OTP & RESET PASSWORD ---
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -658,9 +760,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
       { id: 2, desc: "Direct UPI Order Payments", type: "in", amount: 12400, date: "Today" }
     ];
   });
-  const [ledgerDesc, setLedgerDesc] = useState("");
-  const [ledgerAmount, setLedgerAmount] = useState("");
-  const [ledgerType, setLedgerType] = useState("in");
 
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
   const totalOut = ledgerEntries.filter((e) => e.type === "out").reduce((s, i) => s + Number(i.amount), 0);
@@ -680,7 +779,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
   };
 
   // ==========================================
-  // AUTH WALL (EMAIL OTP THROUGH HOST EMAIL)
+  // AUTH WALL (REAL EMAIL OTP FOR BOTH SIGNUP & FORGOT)
   // ==========================================
   if (!currentUser) {
     return (
@@ -703,7 +802,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
             <div className="grid grid-cols-4 border-b border-slate-800 pb-3 gap-1">
               <button
-                onClick={() => { setAuthMode("login"); setAuthError(""); setAuthSuccessNotice(""); }}
+                onClick={() => { setAuthMode("login"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
                   authMode === "login"
                     ? "border-amber-500 text-amber-400"
@@ -713,7 +812,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 Sign In
               </button>
               <button
-                onClick={() => { setAuthMode("signup"); setAuthError(""); setAuthSuccessNotice(""); }}
+                onClick={() => { setAuthMode("signup"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
                   authMode === "signup"
                     ? "border-amber-500 text-amber-400"
@@ -734,7 +833,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 <span>Forgot? 🔑</span>
               </button>
               <button
-                onClick={() => { setAuthMode("admin"); setAuthError(""); setAuthSuccessNotice(""); }}
+                onClick={() => { setAuthMode("admin"); setSignupStep(1); setAuthError(""); setAuthSuccessNotice(""); }}
                 className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
                   authMode === "admin"
                     ? "border-rose-500 text-rose-400"
@@ -760,8 +859,166 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               </div>
             )}
 
-            {/* REAL HOST EMAIL OTP FORGOT PASSWORD FLOW */}
-            {authMode === "forgot" ? (
+            {/* VIEW A: REGISTRATION WITH REAL EMAIL OTP */}
+            {authMode === "signup" ? (
+              <div className="space-y-4">
+                <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
+                  <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
+                    <Mail className="w-4 h-4 text-amber-400" />
+                    <span>Real Email OTP Registration</span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    {signupStep === 1
+                      ? "Step 1 of 2: Fill details & receive 6-digit OTP in your inbox"
+                      : "Step 2 of 2: Enter code to verify email & create account"}
+                  </p>
+                </div>
+
+                {signupStep === 1 ? (
+                  <form onSubmit={handleSignupRequestOtp} className="space-y-3.5 text-xs">
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. Anand Sharma"
+                          value={authFullName}
+                          onChange={(e) => setAuthFullName(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
+                      <div className="relative">
+                        <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="e.g. Sharma Enterprises"
+                          value={authBusinessName}
+                          onChange={(e) => setAuthBusinessName(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Email Address</label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="founder@yourbusiness.in"
+                          value={authEmailOrPhone}
+                          onChange={(e) => setAuthEmailOrPhone(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-slate-300 font-semibold mb-1">Password</label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={authPassword}
+                          onChange={(e) => setAuthPassword(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-slate-100 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSendingSignupOtp}
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 disabled:opacity-50 mt-2"
+                    >
+                      {isSendingSignupOtp ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Dispatching Verification OTP to Inbox...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Send Verification OTP to Email</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                ) : (
+                  <form onSubmit={handleSignupVerifyAndRegister} className="space-y-4 text-xs">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-slate-300 font-semibold">6-Digit Security OTP from Email</label>
+                        <span className="text-[10px] text-amber-400 font-mono flex items-center space-x-1">
+                          <Clock className="w-3 h-3" />
+                          <span>{formatCountdown(signupOtpSecondsLeft)}</span>
+                        </span>
+                      </div>
+                      <div className="relative">
+                        <KeyRound className="w-4 h-4 text-amber-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          required
+                          maxLength={6}
+                          placeholder="e.g. 583920"
+                          value={signupEnteredOtp}
+                          onChange={(e) => setSignupEnteredOtp(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 font-mono tracking-widest text-center focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1">
+                      <button
+                        type="button"
+                        disabled={signupResendCooldown > 0 || isSendingSignupOtp}
+                        onClick={handleSignupRequestOtp}
+                        className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        <span>{signupResendCooldown > 0 ? `Resend in (${signupResendCooldown}s)` : "Resend Real Email"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setSignupStep(1); setAuthError(""); }}
+                        className="text-[11px] text-slate-400 hover:text-slate-200"
+                      >
+                        Change Details
+                      </button>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isAuthLoading}
+                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+                    >
+                      {isAuthLoading ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Verifying & Creating Account in MongoDB...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Verify OTP & Register Account</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                )}
+              </div>
+            ) : authMode === "forgot" ? (
+              /* VIEW B: REAL HOST EMAIL OTP FORGOT PASSWORD FLOW */
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                   <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
@@ -896,7 +1153,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : (
-              /* LOGIN & SIGNUP */
+              /* VIEW C: SIGN IN & ADMIN AUTHENTICATION */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
@@ -915,39 +1172,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   </div>
                 ) : (
                   <>
-                    {authMode === "signup" && (
-                      <>
-                        <div>
-                          <label className="block text-slate-300 font-semibold mb-1">Full Name</label>
-                          <div className="relative">
-                            <User className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                            <input
-                              type="text"
-                              required
-                              placeholder="e.g. Anand Sharma"
-                              value={authFullName}
-                              onChange={(e) => setAuthFullName(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                            />
-                          </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-slate-300 font-semibold mb-1">Business Name (Optional)</label>
-                          <div className="relative">
-                            <Building className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-                            <input
-                              type="text"
-                              placeholder="e.g. Sharma Enterprises"
-                              value={authBusinessName}
-                              onChange={(e) => setAuthBusinessName(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-amber-500"
-                            />
-                          </div>
-                        </div>
-                      </>
-                    )}
-
                     <div>
                       <label className="block text-slate-300 font-semibold mb-1">Email Address</label>
                       <div className="relative">
@@ -966,15 +1190,13 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="text-slate-300 font-semibold">Password</label>
-                        {authMode === "login" && (
-                          <button
-                            type="button"
-                            onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
-                            className="text-[11px] font-bold text-amber-400 hover:underline"
-                          >
-                            Forgot Password?
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => { setAuthMode("forgot"); setOtpStep(1); setAuthError(""); }}
+                          className="text-[11px] font-bold text-amber-400 hover:underline"
+                        >
+                          Forgot Password?
+                        </button>
                       </div>
                       <div className="relative">
                         <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
@@ -1009,9 +1231,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <span>
                       {authMode === "admin"
                         ? "Authenticate Admin Credentials 🛡️"
-                        : authMode === "login"
-                        ? "Sign In"
-                        : "Register Account"}
+                        : "Sign In"}
                     </span>
                   )}
                 </button>
