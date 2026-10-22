@@ -504,10 +504,10 @@ app.post("/api/subscriptions/submit", async (req, res) => {
   }
 });
 
-// 6. SECURE GEMINI AI ROUTE
+// 6. SECURE GEMINI AI ROUTE (DYNAMIC JSON & TEXT-MODE SUPPORT)
 app.post("/api/ai/generate", async (req, res) => {
   try {
-    const { prompt, systemInstruction } = req.body;
+    const { prompt, systemInstruction, isJson = true } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -515,6 +515,13 @@ app.post("/api/ai/generate", async (req, res) => {
     }
 
     const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
+
+    const generationConfig = {
+      temperature: 0.7
+    };
+    if (isJson) {
+      generationConfig.responseMimeType = "application/json";
+    }
 
     for (const model of models) {
       try {
@@ -528,10 +535,7 @@ app.post("/api/ai/generate", async (req, res) => {
             },
             body: JSON.stringify({
               contents: [{ parts: [{ text: `${systemInstruction || ""}\n\nTask:\n${prompt}` }] }],
-              generationConfig: {
-                temperature: 0.7,
-                responseMimeType: "application/json"
-              }
+              generationConfig
             })
           }
         );
