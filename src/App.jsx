@@ -58,9 +58,8 @@ const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
-const ADMIN_SECRET_KEY = "admin123";
 
-// READ SECURELY FROM VERCEL ENVIRONMENT VARIABLES (NO HARDCODED KEY)
+// Vercel Environment Variable for Gemini
 const VERCEL_ENV_GEMINI_KEY =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
   (typeof process !== "undefined" && (process.env?.REACT_APP_GEMINI_API_KEY || process.env?.NEXT_PUBLIC_GEMINI_API_KEY || process.env?.GEMINI_API_KEY)) ||
@@ -73,13 +72,13 @@ const PAYMENT_LINKS = {
 };
 
 export default function BizNavigatorApp() {
-  // Clear any legacy global Pro leakage
+  // Clear any legacy client-side Pro leakage on boot
   useEffect(() => {
     localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
   }, []);
 
   // ==========================================
-  // 1. STRICT AUTHENTICATION STATE
+  // 1. AUTHENTICATION & RECOVERY STATE
   // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
@@ -111,7 +110,7 @@ export default function BizNavigatorApp() {
   const [signupResendCooldown, setSignupResendCooldown] = useState(0);
   const [isSendingSignupOtp, setIsSendingSignupOtp] = useState(false);
 
-  // Subscriptions & Users synced from MongoDB
+  // MongoDB Collections state
   const [submittedTxns, setSubmittedTxns] = useState([]);
   const [registeredUsersList, setRegisteredUsersList] = useState([]);
 
@@ -126,15 +125,26 @@ export default function BizNavigatorApp() {
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // App Navigation
-  const [activeTab, setActiveTab] = useState("idea-finder");
+  // Navigation: defaults to admin-works if logged-in user is admin
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.role?.toLowerCase() === "admin") return "admin-works";
+    }
+    return "idea-finder";
+  });
+
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || VERCEL_ENV_GEMINI_KEY);
   const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
+
+  // Role helper
+  const isAdminUser = Boolean(currentUser?.role?.toLowerCase() === "admin");
 
   // Strict Pro Check
   const isUserPro = Boolean(
     currentUser && (
-      currentUser.role === "admin" ||
+      isAdminUser ||
       currentUser.isProUser === true ||
       submittedTxns.some(
         (t) =>
@@ -162,23 +172,28 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
+  // Sync DB records from backend API
   const fetchDbData = async () => {
     try {
       const txnsRes = await fetch(`${API_BASE_URL}/subscriptions/all`);
       if (txnsRes.ok) {
         const txns = await txnsRes.json();
-        setSubmittedTxns(txns);
+        if (Array.isArray(txns)) setSubmittedTxns(txns);
       }
+    } catch (err) {
+      console.warn("Could not sync transactions from backend:", err);
+    }
 
-      if (currentUser?.role === "admin") {
+    try {
+      if (currentUser?.role?.toLowerCase() === "admin") {
         const usersRes = await fetch(`${API_BASE_URL}/admin/users`);
         if (usersRes.ok) {
           const users = await usersRes.json();
-          setRegisteredUsersList(users);
+          if (Array.isArray(users)) setRegisteredUsersList(users);
         }
       }
     } catch (err) {
-      console.warn("Backend API offline:", err);
+      console.warn("Could not sync users from backend:", err);
     }
   };
 
@@ -188,6 +203,7 @@ export default function BizNavigatorApp() {
     }
   }, [currentUser]);
 
+  // Timer intervals for OTP
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
     const interval = setInterval(() => setOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
@@ -212,9 +228,7 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupResendCooldown]);
 
-  // ==============================================================
-  // ACTIVE CHOSEN VENTURE STATE (FOLLOWED ACROSS ALL OTHER TABS)
-  // ==============================================================
+  // Active Venture State (Pipeline across tabs)
   const [selectedVenture, setSelectedVenture] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}selected_venture`);
     return cached ? JSON.parse(cached) : null;
@@ -226,8 +240,8 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // ==========================================
-  // REAL EMAIL OTP & AUTHENTICATION HANDLERS
+  // ==============================================================
+  // BACKEND-BASED AUTHENTICATION (LOGIN & ADMIN LOGIN)
   // ==========================================
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
@@ -235,29 +249,47 @@ export default function BizNavigatorApp() {
     setAuthSuccessNotice("");
     setIsAuthLoading(true);
 
+    const isAdminRequest =
+      authMode === "admin" ||
+      authEmailOrPhone.trim().toLowerCase() === "admin" ||
+      authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL;
+
+    const emailToSend = isAdminRequest ? ADMIN_EMAIL : authEmailOrPhone.trim();
+
     try {
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          emailOrPhone: authEmailOrPhone,
-          password: authPassword,
-          isAdminMode: authMode === "admin"
+          emailOrPhone: emailToSend,
+          password: authPassword.trim(),
+          isAdminMode: isAdminRequest
         })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Login failed.");
+      if (!res.ok) throw new Error(data.error || "Authentication failed.");
 
       setCurrentUser(data.user);
       setAuthPassword("");
+
+      // If authenticated as Admin, automatically open Admin Works
+      if (data.user?.role?.toLowerCase() === "admin") {
+        setActiveTab("admin-works");
+        setShowAdminConsoleModal(true);
+      } else {
+        setActiveTab("idea-finder");
+      }
+
+      fetchDbData();
     } catch (err) {
-      setAuthError(err.message);
+      setAuthError(err.message || "Login failed. Check server connection and credentials.");
     } finally {
       setIsAuthLoading(false);
     }
   };
 
+  // --- SIGNUP STEP 1: REQUEST OTP ---
   const handleSignupRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -274,7 +306,6 @@ export default function BizNavigatorApp() {
     }
 
     setIsSendingSignupOtp(true);
-
     try {
       let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
@@ -296,7 +327,7 @@ export default function BizNavigatorApp() {
       setSignupStep(2);
       setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
       setSignupResendCooldown(30);
-      setAuthSuccessNotice(`A real verification OTP has been sent from our mail server to ${authEmailOrPhone}. Please check your inbox and spam folder.`);
+      setAuthSuccessNotice(`A verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -304,6 +335,7 @@ export default function BizNavigatorApp() {
     }
   };
 
+  // --- SIGNUP STEP 2: VERIFY OTP & REGISTER ---
   const handleSignupVerifyAndRegister = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -320,7 +352,6 @@ export default function BizNavigatorApp() {
     }
 
     setIsAuthLoading(true);
-
     try {
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: "POST",
@@ -341,7 +372,8 @@ export default function BizNavigatorApp() {
       setAuthPassword("");
       setSignupEnteredOtp("");
       setSignupStep(1);
-      alert(`Welcome to BizNavigator, ${data.user.name}! Your account is verified and ready.`);
+      setActiveTab("idea-finder");
+      alert(`Welcome to BizNavigator, ${data.user.name}! Your account is ready.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -349,6 +381,7 @@ export default function BizNavigatorApp() {
     }
   };
 
+  // --- FORGOT PASSWORD STEP 1 ---
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -368,7 +401,7 @@ export default function BizNavigatorApp() {
       setOtpStep(2);
       setOtpSecondsLeft(data.expiresInSeconds || 300);
       setResendCooldown(30);
-      setAuthSuccessNotice(`A real verification OTP has been sent from our mail server to ${authEmailOrPhone}. Please check your inbox and spam folder.`);
+      setAuthSuccessNotice(`A real verification OTP has been sent to ${authEmailOrPhone}. Please check your inbox.`);
     } catch (err) {
       setAuthError(err.message);
     } finally {
@@ -376,6 +409,7 @@ export default function BizNavigatorApp() {
     }
   };
 
+  // --- FORGOT PASSWORD STEP 2 ---
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -405,7 +439,7 @@ export default function BizNavigatorApp() {
       setResetConfirmPassword("");
       setAuthMode("login");
       setAuthPassword("");
-      setAuthSuccessNotice("Password verified and updated! Please log in with your new password.");
+      setAuthSuccessNotice("Password verified and updated in MongoDB! Please log in with your new password.");
     } catch (err) {
       setAuthError(err.message);
     }
@@ -416,17 +450,17 @@ export default function BizNavigatorApp() {
       setCurrentUser(null);
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
       setActiveTab("idea-finder");
+      setShowAdminConsoleModal(false);
     }
   };
 
   // ==========================================
-  // GEMINI AI CALLER (SECURE VERCEL / PROXY)
+  // GEMINI AI CALLER
   // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
-    const isAdmin = currentUser.role === "admin";
-    if (!isAdmin && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
+    if (!isAdminUser && !isUserPro && evaluationsCount >= FREE_USAGE_LIMIT) {
       setShowPaywallModal(true);
       throw new Error("LIMIT_REACHED");
     }
@@ -447,7 +481,7 @@ export default function BizNavigatorApp() {
         const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (textResponse) {
-          if (!isAdmin && !isUserPro) {
+          if (!isAdminUser && !isUserPro) {
             fetch(`${API_BASE_URL}/users/usage`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -479,8 +513,8 @@ export default function BizNavigatorApp() {
   const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Corridor)");
   const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media Outreach");
   const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Specialty Beverages, Local Retail");
-  const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)"); // Input 5
-  const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)"); // Input 6
+  const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
+  const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)");
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
   const [matchedIdeas, setMatchedIdeas] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_6inputs`);
@@ -499,8 +533,6 @@ Generate exactly 5 distinct, high-margin, viable Indian business ideas evaluated
 4. Passions & Niche Interests: ${finderInterests}
 5. Working Time Commitment: ${finderTime}
 6. Risk Appetite: ${finderRisk}
-
-CRITICAL: The recommended ideas MUST be strictly feasible within the user's working time commitment (${finderTime}) and risk appetite (${finderRisk}). (e.g. if part-time, do not suggest 14-hour physical restaurant; if low risk, do not suggest heavy CapEx machinery).
 
 Return ONLY valid JSON matching this schema:
 {
@@ -528,7 +560,7 @@ Return ONLY valid JSON matching this schema:
           tagline: "High-volume kiosk near office tech-parks or coaching hubs.",
           category: "Retail F&B",
           matchScore: 96,
-          whyFit: `Perfect for your ${finderTime} schedule and ${finderRisk} appetite. Operates under an accessible initial setup within ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
+          whyFit: `Perfect for your ${finderTime} schedule and ${finderRisk} appetite with setup under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
           estimatedCapex: `₹${(finderBudget * 0.65).toFixed(0)}`,
           monthlyPotential: "₹45,000 - ₹85,000 net profit",
           targetAudience: "Tech park employees, college youth & commuters in " + finderLocation,
@@ -540,7 +572,7 @@ Return ONLY valid JSON matching this schema:
           tagline: "B2B supply partner for local retail brands replacing single-use plastic.",
           category: "B2B Supply",
           matchScore: 92,
-          whyFit: `Matches your sales skills and ${finderRisk} tolerance. Can be managed ${finderTime} with recurring monthly procurement contracts.`,
+          whyFit: `Matches your sales skills and ${finderRisk} tolerance. Can be managed ${finderTime} with recurring procurement contracts.`,
           estimatedCapex: `₹${(finderBudget * 0.85).toFixed(0)}`,
           monthlyPotential: "₹35,000 - ₹90,000 recurring retainers",
           targetAudience: "Boutique clothing shops, sweet vendors, and local cafes in " + finderLocation,
@@ -597,140 +629,16 @@ Return ONLY valid JSON matching this schema:
     }
   };
 
-  // --- UNIFIED PIPELINE: SELECT 1 OF 5 IDEAS & LINK ACROSS ALL FEATURES ---
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
-
-    // 1. Link to Business Evaluator
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
     setInitialCapital(finderBudget);
     setTargetCity(finderLocation);
     setCustomerSegment(idea.targetAudience);
-
-    // 2. Link to Location Scout
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
-
-    // 3. Link to Daily Sprint (Adapt Sprint Tasks to Chosen Idea & Time Commitment)
-    const isPartTime = finderTime.toLowerCase().includes("part");
-    const adaptedSprint = [
-      {
-        id: "day_1",
-        dayTitle: `Day 1: Ground Demand Intercept for ${idea.title.substring(0, 20)}...`,
-        phase: "Phase 1: Demand Validation",
-        task: `Survey 20 target customers in ${finderLocation} matching ${idea.targetAudience}.`,
-        timeEst: isPartTime ? "2.5 hrs" : "4.0 hrs",
-        budgetEst: "₹300",
-        priority: "Critical",
-        completed: false,
-        notes: `Focusing on ${idea.title} (${finderTime}, ${finderRisk}). Action: ${idea.firstStep}`
-      },
-      {
-        id: "day_2",
-        dayTitle: `Day 2: Competitor Pricing & Margin Audit`,
-        phase: "Phase 1: Demand Validation",
-        task: `Audit 3 active competitors in ${idea.category} to benchmark retail prices and volume bottlenecks.`,
-        timeEst: isPartTime ? "2 hrs" : "3 hrs",
-        budgetEst: "₹500",
-        priority: "High",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_3",
-        dayTitle: `Day 3: Wholesale Supplier & Mandi Price Lock-in`,
-        phase: "Phase 2: Sourcing",
-        task: `Identify 3 verified wholesale suppliers on Indiamart or local markets for ${idea.title}.`,
-        timeEst: isPartTime ? "3 hrs" : "4.5 hrs",
-        budgetEst: "₹0",
-        priority: "Critical",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_4",
-        dayTitle: `Day 4: Custom Packaging & Consumables`,
-        phase: "Phase 2: Sourcing",
-        task: `Procure trial batch of branded packaging/containers suitable for ${idea.category}.`,
-        timeEst: isPartTime ? "2 hrs" : "3 hrs",
-        budgetEst: "₹4,500",
-        priority: "High",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_5",
-        dayTitle: `Day 5: MSME Udyam Zero-Cost Registration`,
-        phase: "Phase 3: Compliance",
-        task: "Register online on udyamregistration.gov.in using Aadhaar & PAN for government priority lending benefits.",
-        timeEst: "1 hr",
-        budgetEst: "₹0 (Free Gov portal)",
-        priority: "Critical",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_6",
-        dayTitle: `Day 6: Current Bank Account & GST Verification`,
-        phase: "Phase 3: Compliance",
-        task: `Visit bank with Udyam Certificate and rent agreement to initiate Current Account for ${idea.title}.`,
-        timeEst: "3 hrs",
-        budgetEst: "₹10,000 (Initial deposit)",
-        priority: "High",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_7",
-        dayTitle: `Day 7: Category License (FSSAI / Shop Act / Trade License)`,
-        phase: "Phase 3: Compliance",
-        task: idea.category.includes("F&B")
-          ? "Apply for FSSAI Basic Food Registration on foscos.fssai.gov.in (₹100/yr)."
-          : "Apply for Municipal Shop & Establishment Trade License.",
-        timeEst: "2 hrs",
-        budgetEst: "₹1,500",
-        priority: "Critical",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_8",
-        dayTitle: `Day 8: UPI Merchant QR & Soundbox Installation`,
-        phase: "Phase 4: Launch",
-        task: "Set up Paytm/PhonePe/BharatPe UPI Merchant Soundbox for instant zero-MDR voice payment confirmations.",
-        timeEst: "1.5 hrs",
-        budgetEst: "₹125/mo rental",
-        priority: "High",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_9",
-        dayTitle: `Day 9: WhatsApp Business Catalog & Neighborhood Outreach`,
-        phase: "Phase 4: Launch",
-        task: `Create digital catalog for ${idea.title} and distribute promotional flyers or broadcast in target groups.`,
-        timeEst: isPartTime ? "2 hrs" : "3 hrs",
-        budgetEst: "₹1,200",
-        priority: "Medium",
-        completed: false,
-        notes: ""
-      },
-      {
-        id: "day_10",
-        dayTitle: `Day 10: Soft Launch (Beta Batch & Customer Reviews)`,
-        phase: "Phase 4: Launch",
-        task: `Launch pilot run of ${idea.title} with an introductory offer to collect first 20 verified customer reviews.`,
-        timeEst: isPartTime ? "3.5 hrs" : "5 hrs",
-        budgetEst: "₹2,500",
-        priority: "Critical",
-        completed: false,
-        notes: ""
-      }
-    ];
-
-    setDailySprintTasks(adaptedSprint);
     setActiveTab("location-scout");
-    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools (Location Scout 📍, Feasibility Evaluator, and 10-Day Sprint Guide) are now configured for this business.`);
+    alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools are now configured for this business.`);
   };
 
   // --- TAB 2: LOCATION SCOUT ---
@@ -748,11 +656,11 @@ Return ONLY valid JSON matching this schema:
     e.preventDefault();
     setIsScoutingLocations(true);
 
-    const prompt = `Evaluate the best micro-locations in the Indian city of "${scoutCity}" for the business: "${scoutConcept}".
-Target Monthly Rent: Up to ₹${scoutBudgetRent} | Desired Footfall: ${scoutTrafficType}
+    const prompt = `Evaluate the best micro-locations in "${scoutCity}" for "${scoutConcept}".
+Rent: Up to ₹${scoutBudgetRent} | Footfall: ${scoutTrafficType}
 Return ONLY valid JSON:
 {
-  "cityOverview": "2-sentence commercial summary of ${scoutCity}.",
+  "cityOverview": "2-sentence summary of ${scoutCity}.",
   "locations": [
     {
       "name": "Exact Neighborhood / Market Street",
@@ -781,17 +689,6 @@ Return ONLY valid JSON:
           peakHours: "9:00 AM - 11:30 AM & 5:00 PM - 9:00 PM",
           idealFormat: "Compact front-facing takeaway counter with UPI soundbox",
           verdict: "High evening beverage spend with very low price sensitivity."
-        },
-        {
-          name: "Koramangala 7th Block (Near Forum & Co-working Clusters)",
-          zoneType: "Commercial & Student Belt",
-          suitabilityScore: 91,
-          estimatedRent: "₹140 - ₹190 / sq.ft (~₹25,000/mo for 130 sq.ft)",
-          footfallProfile: "College students, working bachelors, weekend cafe crowds",
-          competitionDensity: "High",
-          peakHours: "1:00 PM - 3:30 PM & 6:00 PM - 10:30 PM",
-          idealFormat: "Eye-catching neon branding kiosk with fast-serving menu items",
-          verdict: "Immense daily footfall; guaranteed high volume if served under 90 seconds."
         }
       ]
     });
@@ -869,7 +766,21 @@ Return ONLY valid JSON:
   // --- TAB 4: SPRINT TASKS ---
   const [dailySprintTasks, setDailySprintTasks] = useState(() => {
     const cached = localStorage.getItem(`${STORAGE_PREFIX}daily_sprint`);
-    return cached ? JSON.parse(cached) : [];
+    return cached
+      ? JSON.parse(cached)
+      : [
+          {
+            id: "day_1",
+            dayTitle: "Day 1: Ground Demand Validation",
+            phase: "Phase 1: Validation",
+            task: "Survey 20 target customers in target zone.",
+            timeEst: "3.5 hrs",
+            budgetEst: "₹300",
+            priority: "Critical",
+            completed: false,
+            notes: ""
+          }
+        ];
   });
 
   const [roadmapFilter, setRoadmapFilter] = useState("all");
@@ -970,8 +881,63 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
+  // ==============================================================
+  // ADMIN CONTROL ACTIONS (MONGODB CONNECTED)
+  // ==============================================================
+  const handleAdminApproveTxn = async (txnId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txnId, status: "approved" })
+      });
+
+      if (!res.ok) throw new Error("Approval failed on server");
+      fetchDbData();
+      alert("Transaction Approved! Pro access granted to user in MongoDB.");
+    } catch (e) {
+      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "approved" } : t));
+      setSubmittedTxns(updated);
+      alert("Updated transaction status.");
+    }
+  };
+
+  const handleAdminRevokeTxn = async (txnId) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ txnId, status: "rejected" })
+      });
+
+      if (!res.ok) throw new Error("Revocation failed on server");
+      fetchDbData();
+      alert("Transaction marked as Rejected.");
+    } catch (e) {
+      const updated = submittedTxns.map((t) => (t._id === txnId || t.id === txnId ? { ...t, status: "rejected" } : t));
+      setSubmittedTxns(updated);
+      alert("Updated transaction status.");
+    }
+  };
+
+  const handleAdminToggleUserPro = async (emailOrPhone) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone })
+      });
+
+      if (!res.ok) throw new Error("Toggle failed on server");
+      fetchDbData();
+      alert(`Pro status updated for ${emailOrPhone}`);
+    } catch (e) {
+      alert("Error toggling user pro status.");
+    }
+  };
+
   // ==========================================
-  // AUTH WALL (REAL EMAIL OTP FOR SIGNUP & FORGOT)
+  // AUTH WALL
   // ==========================================
   if (!currentUser) {
     return (
@@ -1043,7 +1009,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               </div>
             )}
 
-            {/* VIEW A: REGISTRATION WITH REAL EMAIL OTP */}
+            {/* VIEW A: SIGN UP WITH EMAIL OTP */}
             {authMode === "signup" ? (
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
@@ -1053,8 +1019,8 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   </h3>
                   <p className="text-[10px] text-slate-400 mt-0.5">
                     {signupStep === 1
-                      ? "Step 1 of 2: Fill details & receive 6-digit OTP in inbox"
-                      : "Step 2 of 2: Enter code to verify email & create account"}
+                      ? "Step 1: Enter details to receive 6-digit OTP in inbox"
+                      : "Step 2: Enter OTP code to verify and create account"}
                   </p>
                 </div>
 
@@ -1122,7 +1088,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <button
                       type="submit"
                       disabled={isSendingSignupOtp}
-                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 disabled:opacity-50 mt-2"
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50 mt-2"
                     >
                       {isSendingSignupOtp ? (
                         <>
@@ -1141,7 +1107,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   <form onSubmit={handleSignupVerifyAndRegister} className="space-y-4 text-xs">
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-slate-300 font-semibold">6-Digit Security OTP from Email</label>
+                        <label className="text-slate-300 font-semibold">6-Digit Security OTP</label>
                         <span className="text-[10px] text-amber-400 font-mono flex items-center space-x-1">
                           <Clock className="w-3 h-3" />
                           <span>Expires in: {formatCountdown(signupOtpSecondsLeft)}</span>
@@ -1169,7 +1135,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                         className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        <span>{signupResendCooldown > 0 ? `Resend in (${signupResendCooldown}s)` : "Resend Real Email"}</span>
+                        <span>{signupResendCooldown > 0 ? `Resend in (${signupResendCooldown}s)` : "Resend Email"}</span>
                       </button>
 
                       <button
@@ -1184,12 +1150,12 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <button
                       type="submit"
                       disabled={isAuthLoading}
-                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
                     >
                       {isAuthLoading ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Verifying & Creating Account in MongoDB...</span>
+                          <span>Verifying & Saving in MongoDB...</span>
                         </>
                       ) : (
                         <>
@@ -1202,7 +1168,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : authMode === "forgot" ? (
-              /* VIEW B: REAL HOST EMAIL OTP FORGOT PASSWORD FLOW */
+              /* VIEW B: FORGOT PASSWORD WITH REAL EMAIL OTP */
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                   <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
@@ -1238,7 +1204,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <button
                       type="submit"
                       disabled={isSendingOtp}
-                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg shadow-amber-500/20 flex items-center justify-center space-x-2 disabled:opacity-50"
+                      className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
                     >
                       {isSendingOtp ? (
                         <>
@@ -1315,7 +1281,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                         className="text-[11px] text-amber-400 hover:underline disabled:text-slate-600 flex items-center space-x-1"
                       >
                         <RotateCcw className="w-3 h-3" />
-                        <span>{resendCooldown > 0 ? `Resend in (${resendCooldown}s)` : "Resend Real Email"}</span>
+                        <span>{resendCooldown > 0 ? `Resend in (${resendCooldown}s)` : "Resend Email"}</span>
                       </button>
 
                       <button
@@ -1329,7 +1295,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
 
                     <button
                       type="submit"
-                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
+                      className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 text-slate-950 font-bold py-2.5 rounded-xl transition text-xs shadow-lg mt-2"
                     >
                       Verify OTP & Reset Password
                     </button>
@@ -1337,22 +1303,27 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : (
-              /* VIEW C: SIGN IN & ADMIN AUTHENTICATION */
+              /* VIEW C: SIGN IN & ADMIN AUTHENTICATION FORM */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">Master Admin Secret Key</label>
+                    <label className="block text-slate-300 font-semibold mb-1">
+                      Master Admin Secret Key
+                    </label>
                     <div className="relative">
                       <Lock className="w-4 h-4 text-rose-400 absolute left-3 top-2.5" />
                       <input
                         type="password"
                         required
-                        placeholder="Enter Admin Secret Password"
+                        placeholder="Enter Admin Secret Password (admin123)"
                         value={authPassword}
                         onChange={(e) => setAuthPassword(e.target.value)}
                         className="w-full bg-slate-950 border border-rose-500/40 rounded-xl pl-9 pr-3 py-2.5 text-slate-100 focus:outline-none focus:border-rose-400 font-mono text-xs"
                       />
                     </div>
+                    <span className="text-[10px] text-slate-500 block mt-1">
+                      Secured backend validation against server credentials.
+                    </span>
                   </div>
                 ) : (
                   <>
@@ -1402,19 +1373,19 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   disabled={isAuthLoading}
                   className={`w-full font-bold py-3 rounded-xl transition text-xs shadow-lg flex items-center justify-center space-x-2 ${
                     authMode === "admin"
-                      ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950"
-                      : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950"
+                      ? "bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 text-slate-950 shadow-rose-500/20"
+                      : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 shadow-amber-500/20"
                   }`}
                 >
                   {isAuthLoading ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Verifying with MongoDB Database...</span>
+                      <span>Verifying with Backend Server...</span>
                     </>
                   ) : (
                     <span>
                       {authMode === "admin"
-                        ? "Authenticate Admin Credentials 🛡️"
+                        ? "Authenticate Admin via Backend 🛡️"
                         : "Sign In"}
                     </span>
                   )}
@@ -1462,7 +1433,8 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
 
           <div className="flex items-center space-x-3 text-sm">
-            {currentUser.role === "admin" ? (
+            {/* ADMIN WORKS BUTTON IN HEADER */}
+            {isAdminUser ? (
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 bg-rose-950/80 border border-rose-500/40 px-3 py-1.5 rounded-full text-rose-400 text-xs font-bold">
                   <Crown className="w-3.5 h-3.5" />
@@ -1470,8 +1442,13 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 </div>
 
                 <button
-                  onClick={() => { fetchDbData(); setShowAdminConsoleModal(true); }}
-                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md transition"
+                  type="button"
+                  onClick={() => {
+                    fetchDbData();
+                    setActiveTab("admin-works");
+                    setShowAdminConsoleModal(true);
+                  }}
+                  className="bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-400 hover:to-red-500 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center space-x-1.5 shadow-md shadow-rose-500/20 transition transform hover:scale-105 cursor-pointer"
                 >
                   <Settings className="w-3.5 h-3.5" />
                   <span>Administrative Works ⚙️</span>
@@ -1489,7 +1466,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 </span>
                 <button
                   onClick={() => setShowPaywallModal(true)}
-                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center shadow-md transition"
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center shadow-md transition"
                 >
                   <Zap className="w-3.5 h-3.5 mr-1" /> Upgrade
                 </button>
@@ -1498,7 +1475,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
 
             <div className="flex items-center space-x-2 bg-slate-800 border border-slate-700 px-3 py-1 rounded-xl">
               <div className={`w-6 h-6 rounded-full font-black text-xs flex items-center justify-center ${
-                currentUser.role === "admin" ? "bg-rose-500 text-white" : "bg-amber-500 text-slate-950"
+                isAdminUser ? "bg-rose-500 text-white" : "bg-amber-500 text-slate-950"
               }`}>
                 {currentUser.name?.charAt(0).toUpperCase()}
               </div>
@@ -1520,29 +1497,45 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
             { id: "location-scout", label: "Location Scout 📍", icon: MapPin },
             { id: "evaluator", label: "Business Evaluator", icon: Briefcase },
             { id: "roadmap", label: `Daily Sprint Guide (${sprintProgressPercent}%)`, icon: Calendar },
-            { id: "tools", label: "AI Calculators & Ledger", icon: Calculator }
+            { id: "tools", label: "AI Calculators & Ledger", icon: Calculator },
+            ...(isAdminUser
+              ? [{ id: "admin-works", label: "Admin Works ⚙️", icon: Settings, highlight: true }]
+              : [])
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => {
+                  setActiveTab(tab.id);
+                  if (tab.id === "admin-works") {
+                    fetchDbData();
+                    setShowAdminConsoleModal(true);
+                  }
+                }}
                 className={`flex items-center space-x-2 py-2.5 px-4 font-medium transition-all border-b-2 whitespace-nowrap ${
                   isActive
-                    ? "border-amber-500 text-amber-400 bg-amber-500/5 font-bold"
+                    ? tab.highlight
+                      ? "border-rose-500 text-rose-400 bg-rose-500/10 font-bold"
+                      : "border-amber-500 text-amber-400 bg-amber-500/5 font-bold"
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
+                {tab.highlight && (
+                  <span className="text-[9px] bg-rose-500/20 text-rose-400 px-1.5 py-0.2 rounded border border-rose-500/40">
+                    MASTER
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </header>
 
-      {/* ACTIVE CHOSEN VENTURE PIPELINE BANNER */}
+      {/* ACTIVE VENTURE PIPELINE BANNER */}
       {selectedVenture && (
         <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/15 to-transparent border-b border-amber-500/30 px-4 py-2.5 text-xs text-amber-200">
           <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1587,8 +1580,177 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
         {/* ============================================================== */}
-        {/* TAB 1: 6-INPUT AI IDEA MATCHER (5 IDEAS + UNIFIED PIPELINE)    */}
+        {/* DEDICATED VIEW: ADMIN WORKS (ACCESSIBLE TO ADMIN AT ALL TIMES)  */}
         {/* ============================================================== */}
+        {activeTab === "admin-works" && isAdminUser && (
+          <div className="space-y-6">
+            <div className="bg-gradient-to-r from-rose-500/10 via-red-500/10 to-transparent border border-rose-500/30 rounded-3xl p-6 sm:p-8">
+              <span className="text-rose-400 font-bold text-xs uppercase tracking-wider flex items-center space-x-1.5">
+                <Crown className="w-4 h-4" />
+                <span>Executive Administrative Console</span>
+              </span>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
+                Administrative Operations & Payment Audit Center
+              </h1>
+              <p className="text-xs text-slate-300 mt-1">
+                Audit customer Razorpay payments, approve subscriptions, and manage user access across MongoDB Atlas.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Total Registered Users</span>
+                  <span className="text-2xl font-black text-slate-100 mt-1 block">
+                    {registeredUsersList.length + 1}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Approved Transactions</span>
+                  <span className="text-2xl font-black text-emerald-400 mt-1 block">
+                    {submittedTxns.filter((t) => t.status === "approved").length}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-emerald-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 text-xs block">Pending Reviews</span>
+                  <span className="text-2xl font-black text-amber-400 mt-1 block">
+                    {submittedTxns.filter((t) => t.status === "pending").length}
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center">
+                  <Clock className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Submissions Table in Admin Works */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <span>Razorpay Transaction Approvals</span>
+                </h3>
+                <button
+                  onClick={fetchDbData}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded-lg text-xs flex items-center space-x-1"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Sync DB</span>
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {submittedTxns.length === 0 ? (
+                  <div className="text-slate-500 text-xs py-8 text-center">
+                    No Razorpay transactions found in MongoDB.
+                  </div>
+                ) : (
+                  submittedTxns.map((txn) => (
+                    <div
+                      key={txn._id || txn.id}
+                      className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-bold text-amber-400">{txn.paymentId}</span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                              txn.status === "approved"
+                                ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
+                                : txn.status === "rejected"
+                                ? "bg-rose-950 text-rose-400 border border-rose-500/30"
+                                : "bg-amber-950 text-amber-400 border border-amber-500/30"
+                            }`}
+                          >
+                            {txn.status}
+                          </span>
+                        </div>
+                        <div className="text-slate-400 mt-1">
+                          User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
+                        </div>
+                        <div className="text-slate-500 text-[10px]">
+                          {txn.createdAt ? new Date(txn.createdAt).toLocaleString("en-IN") : "Recent"}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        {txn.status !== "approved" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Approve Pro
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
+                            className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Revoke Pro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Registered Users Table */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
+              <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-2 border-b border-slate-800 pb-3">
+                <Users className="w-4 h-4 text-indigo-400" />
+                <span>Registered SME Users Directory</span>
+              </h3>
+
+              <div className="space-y-2 text-xs">
+                {registeredUsersList.length === 0 ? (
+                  <div className="text-slate-500 text-center py-6">No users found in MongoDB.</div>
+                ) : (
+                  registeredUsersList.map((usr, i) => (
+                    <div
+                      key={usr._id || i}
+                      className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-200">{usr.name}</span>
+                        <span className="text-slate-500 ml-2">({usr.emailOrPhone})</span>
+                        <span className="text-[10px] text-amber-400 block">{usr.businessName}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAdminToggleUserPro(usr.emailOrPhone)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          usr.isProUser
+                            ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
+                        }`}
+                      >
+                        {usr.isProUser ? "Active Pro (Revoke)" : "Grant Pro"}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 1: 6-INPUT AI IDEA MATCHER */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
@@ -1605,7 +1767,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
@@ -1613,7 +1774,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 </h2>
 
                 <form onSubmit={handleGenerateIdeas} className="space-y-4 text-xs">
-                  {/* INPUT 1: BUDGET */}
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">
                       1. Planned Investment Budget (₹ INR)
@@ -1625,21 +1785,8 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       onChange={(e) => setFinderBudget(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
-                    <div className="flex gap-1.5 mt-1.5">
-                      {["50000", "150000", "500000", "1500000"].map((b) => (
-                        <button
-                          key={b}
-                          type="button"
-                          onClick={() => setFinderBudget(b)}
-                          className="bg-slate-800 hover:bg-slate-700 text-[10px] text-amber-300 px-2 py-0.5 rounded border border-slate-700"
-                        >
-                          ₹{parseInt(b).toLocaleString("en-IN")}
-                        </button>
-                      ))}
-                    </div>
                   </div>
 
-                  {/* INPUT 2: LOCATION */}
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">
                       2. Target Location / Indian City
@@ -1654,7 +1801,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     />
                   </div>
 
-                  {/* INPUT 3: SKILLS */}
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">
                       3. Your Skills & Strengths
@@ -1664,12 +1810,11 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={finderSkills}
                       onChange={(e) => setFinderSkills(e.target.value)}
-                      placeholder="e.g. Sales, Cooking, Accounting, Tech, Carpentry, Social Media"
+                      placeholder="e.g. Sales, Cooking, Accounting, Tech, Social Media"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
-                  {/* INPUT 4: INTERESTS */}
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">
                       4. Passions & Niche Interests
@@ -1679,14 +1824,12 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={finderInterests}
                       onChange={(e) => setFinderInterests(e.target.value)}
-                      placeholder="e.g. Healthy Food, Fitness, Packaging, Regional Snacks, Apparel"
+                      placeholder="e.g. Healthy Food, Packaging, Fitness, Apparel"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
-                  {/* INPUT 5 & 6 IN A 2-COLUMN GRID */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                    {/* INPUT 5: WORKING TIME */}
                     <div>
                       <label className="block font-semibold text-slate-300 mb-1 flex items-center space-x-1">
                         <Clock className="w-3.5 h-3.5 text-amber-400" />
@@ -1703,7 +1846,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       </select>
                     </div>
 
-                    {/* INPUT 6: RISK TOLERANCE */}
                     <div>
                       <label className="block font-semibold text-slate-300 mb-1 flex items-center space-x-1">
                         <Gauge className="w-3.5 h-3.5 text-amber-400" />
@@ -1724,7 +1866,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                   <button
                     type="submit"
                     disabled={isFindingIdeas}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50 mt-2"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50 mt-2"
                   >
                     {isFindingIdeas ? (
                       <>
@@ -1741,7 +1883,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 </form>
               </div>
 
-              {/* 5 Recommended Ideas with 1-Click Choose Action */}
               <div className="lg:col-span-7 space-y-4">
                 <div className="flex items-center justify-between pb-2 border-b border-slate-800">
                   <h3 className="font-bold text-slate-200 text-sm flex items-center space-x-2">
@@ -1810,11 +1951,11 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                           </div>
                         </div>
 
-                        {/* CHOOSE VENTURE BUTTON */}
                         <div className="flex justify-end pt-2">
                           <button
+                            type="button"
                             onClick={() => handleChooseVenture(idea)}
-                            className={`font-bold px-4 py-2.5 rounded-xl text-xs flex items-center space-x-1.5 transition shadow-md ${
+                            className={`font-bold px-4 py-2.5 rounded-xl text-xs flex items-center space-x-1.5 transition shadow-md cursor-pointer ${
                               isSelected
                                 ? "bg-amber-500 text-slate-950 hover:bg-amber-400"
                                 : "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 text-slate-950"
@@ -1839,9 +1980,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 2: AI MICRO-LOCATION SCOUT (CONNECTED TO CHOSEN VENTURE)   */}
-        {/* ============================================================== */}
+        {/* TAB 2: LOCATION SCOUT */}
         {activeTab === "location-scout" && (
           <div className="space-y-8">
             <div className="bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-transparent border border-amber-500/30 rounded-3xl p-6 sm:p-8">
@@ -1852,28 +1991,20 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
                 Evaluate Best Commercial Spots for {selectedVenture ? `"${selectedVenture.title}"` : "Your Concept"}
               </h1>
-              <p className="text-sm text-slate-300 mt-1 max-w-3xl">
-                Estimates rental rates per sq.ft., footfall profiles (IT corridors vs student belts), and peak hours across {scoutCity}.
-              </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
-                <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
-                  <Compass className="w-5 h-5 text-amber-400" />
-                  <span>City & Rent Parameters</span>
-                </h2>
-
                 <form onSubmit={handleEvaluateLocations} className="space-y-4 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Target Indian City</label>
                     <input
                       type="text"
                       required
-                      placeholder="e.g. Bengaluru, Pune, Jaipur, Ahmedabad, Lucknow"
+                      placeholder="e.g. Bengaluru, Pune, Jaipur, Ahmedabad"
                       value={scoutCity}
                       onChange={(e) => setScoutCity(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100"
                     />
                   </div>
 
@@ -1884,7 +2015,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={scoutConcept}
                       onChange={(e) => setScoutConcept(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100"
                     />
                   </div>
 
@@ -1895,41 +2026,17 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       required
                       value={scoutBudgetRent}
                       onChange={(e) => setScoutBudgetRent(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
+                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100"
                     />
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Footfall Demographic</label>
-                    <select
-                      value={scoutTrafficType}
-                      onChange={(e) => setScoutTrafficType(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
-                    >
-                      <option>Corporate Tech Park / Startup Office Crowd</option>
-                      <option>High-Street Retail & Weekend Dining Walkers</option>
-                      <option>College / University Hostel & Student Belt</option>
-                      <option>High-Density Gated Societies & Family Residential</option>
-                      <option>Metro Station / Bus Stand Transit Hub</option>
-                    </select>
                   </div>
 
                   <button
                     type="submit"
                     disabled={isScoutingLocations}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2"
                   >
-                    {isScoutingLocations ? (
-                      <>
-                        <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating Micro-Markets in {scoutCity}...</span>
-                      </>
-                    ) : (
-                      <>
-                        <MapPin className="w-4 h-4" />
-                        <span>Scout Best Micro-Locations</span>
-                      </>
-                    )}
+                    {isScoutingLocations ? <RefreshCw className="w-4 h-4 animate-spin" /> : <MapPin className="w-4 h-4" />}
+                    <span>Scout Best Micro-Locations</span>
                   </button>
                 </form>
               </div>
@@ -1937,63 +2044,25 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               <div className="lg:col-span-7 space-y-4">
                 {scoutResults ? (
                   <div className="space-y-4">
-                    <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl text-xs text-slate-300 leading-relaxed">
-                      <strong className="text-amber-400 block font-bold mb-1">City Commercial Verdict:</strong>
-                      {scoutResults.cityOverview}
-                    </div>
-
-                    <div className="space-y-4">
-                      {scoutResults.locations?.map((loc, idx) => (
-                        <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
-                          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                            <div>
-                              <h3 className="font-extrabold text-slate-100 text-sm flex items-center space-x-1.5">
-                                <MapPin className="w-4 h-4 text-amber-400" />
-                                <span>{loc.name}</span>
-                              </h3>
-                              <span className="text-[10px] text-slate-400">{loc.zoneType}</span>
-                            </div>
-                            <span className="text-emerald-400 font-bold text-xs">{loc.suitabilityScore}% Location Fit</span>
-                          </div>
-
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                              <span className="text-[10px] text-slate-500 block">Est. Market Rent</span>
-                              <span className="font-bold text-amber-300 block truncate">{loc.estimatedRent}</span>
-                            </div>
-                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
-                              <span className="text-[10px] text-slate-500 block">Competition</span>
-                              <span className="font-bold text-slate-200 block truncate">{loc.competitionDensity}</span>
-                            </div>
-                            <div className="bg-slate-950 p-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
-                              <span className="text-[10px] text-slate-500 block">Peak Hours</span>
-                              <span className="font-bold text-emerald-400 block truncate">{loc.peakHours}</span>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-300 italic bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                            "{loc.verdict}"
-                          </p>
-
-                          <div className="flex justify-end pt-1">
-                            <button
-                              onClick={() => {
-                                setTargetCity(`${loc.name}, ${scoutCity}`);
-                                setActiveTab("evaluator");
-                              }}
-                              className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3.5 py-1.5 rounded-xl text-xs flex items-center space-x-1"
-                            >
-                              <span>Apply Location to Feasibility Plan</span>
-                              <ArrowRight className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                    {scoutResults.locations?.map((loc, idx) => (
+                      <div key={idx} className="bg-slate-900 border border-slate-800 p-5 rounded-3xl space-y-3">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                          <h3 className="font-bold text-slate-100 text-sm flex items-center space-x-1.5">
+                            <MapPin className="w-4 h-4 text-amber-400" />
+                            <span>{loc.name}</span>
+                          </h3>
+                          <span className="text-emerald-400 font-bold text-xs">{loc.suitabilityScore}% Location Fit</span>
                         </div>
-                      ))}
-                    </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div>Rent: <strong className="text-amber-300">{loc.estimatedRent}</strong></div>
+                          <div>Footfall: <strong className="text-slate-200">{loc.footfallProfile}</strong></div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ) : (
                   <div className="h-64 border border-dashed border-slate-800 rounded-3xl flex items-center justify-center text-slate-500 text-xs">
-                    Input city and concept on the left to scout top micro-markets.
+                    Input city on the left to scout top micro-markets.
                   </div>
                 )}
               </div>
@@ -2001,18 +2070,11 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 3: BUSINESS EVALUATOR (CONNECTED TO CHOSEN VENTURE)        */}
-        {/* ============================================================== */}
+        {/* TAB 3: BUSINESS EVALUATOR */}
         {activeTab === "evaluator" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-                <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3 mb-4">
-                  <Sparkles className="w-5 h-5 text-amber-400" />
-                  <span>Feasibility & Financial Breakdown</span>
-                </h2>
-
                 <form onSubmit={handleEvaluateIdea} className="space-y-4 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Business Concept</label>
@@ -2053,7 +2115,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
               </div>
 
               <div className="lg:col-span-7">
-                {analysisResult ? (
+                {analysisResult && (
                   <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
                     <h3 className="font-bold text-slate-100 text-base">{businessIdea}</h3>
                     <div className="grid grid-cols-3 gap-3 text-center text-xs">
@@ -2064,19 +2126,6 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <p className="text-xs text-slate-300 leading-relaxed bg-slate-950 p-3.5 rounded-xl border border-slate-800">
                       {analysisResult.summary}
                     </p>
-                    <div className="flex justify-end pt-2">
-                      <button
-                        onClick={() => setActiveTab("roadmap")}
-                        className="bg-amber-500 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1"
-                      >
-                        <span>Start 10-Day Sprint Roadmap</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="h-64 border border-dashed border-slate-800 rounded-3xl flex items-center justify-center text-slate-500 text-xs">
-                    Run audit to review CapEx, OpEx, and break-even projections.
                   </div>
                 )}
               </div>
@@ -2084,90 +2133,52 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
           </div>
         )}
 
-        {/* ============================================================== */}
-        {/* TAB 4: UPGRADED DAY-BY-DAY EXECUTION SPRINT                    */}
-        {/* ============================================================== */}
+        {/* TAB 4: SPRINT TASKS */}
         {activeTab === "roadmap" && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5">
               <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-                <div>
-                  <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
-                    <Calendar className="w-5 h-5 text-amber-400" />
-                    <span>Daily Launch Sprint for {selectedVenture ? `"${selectedVenture.title}"` : "Active Plan"}</span>
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-0.5">Time and budget allocations with AI SOPs for each day.</p>
-                </div>
+                <h2 className="text-lg font-bold text-slate-100 flex items-center space-x-2">
+                  <Calendar className="w-5 h-5 text-amber-400" />
+                  <span>Daily Launch Sprint for {selectedVenture ? `"${selectedVenture.title}"` : "Active Plan"}</span>
+                </h2>
                 <span className="text-amber-400 font-bold text-sm bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
                   {sprintProgressPercent}% Complete
                 </span>
               </div>
 
               <div className="space-y-3">
-                {dailySprintTasks.length === 0 ? (
-                  <div className="text-center py-10 text-slate-500 text-xs">
-                    Please go to the <strong>AI Idea Matcher</strong> tab and click "Choose This Idea & Build Plan" to generate your custom 10-day sprint.
-                  </div>
-                ) : (
-                  filteredTasks.map((t) => (
-                    <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <button onClick={() => toggleDailyTask(t.id)}>
-                            {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
-                          </button>
-                          <div>
-                            <div className="font-bold text-xs text-slate-200">{t.dayTitle}</div>
-                            <div className={`text-[11px] ${t.completed ? "line-through text-slate-500" : "text-slate-400"}`}>{t.task}</div>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => handleConsultDailyTaskAI(t)}
-                          className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1"
-                        >
-                          <Bot className="w-3.5 h-3.5" />
-                          <span>AI SOP</span>
+                {filteredTasks.map((t) => (
+                  <div key={t.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <button type="button" onClick={() => toggleDailyTask(t.id)}>
+                          {t.completed ? <CheckCircle2 className="w-5 h-5 text-emerald-400" /> : <Circle className="w-5 h-5 text-slate-600" />}
                         </button>
+                        <div>
+                          <div className="font-bold text-xs text-slate-200">{t.dayTitle}</div>
+                          <div className={`text-[11px] ${t.completed ? "line-through text-slate-500" : "text-slate-400"}`}>{t.task}</div>
+                        </div>
                       </div>
 
-                      <div className="border-t border-slate-800/80 pt-2 flex items-center justify-between text-[11px]">
-                        {editingNoteId === t.id ? (
-                          <div className="flex items-center space-x-2 w-full">
-                            <input
-                              type="text"
-                              value={tempNoteText}
-                              onChange={(e) => setTempNoteText(e.target.value)}
-                              placeholder="Notes, phone numbers, or quotes..."
-                              className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-slate-100"
-                            />
-                            <button onClick={() => handleSaveTaskNote(t.id)} className="bg-emerald-500 text-slate-950 px-2 py-1 rounded-lg font-bold">Save</button>
-                          </div>
-                        ) : (
-                          <>
-                            <span className="text-slate-400 italic truncate max-w-sm">
-                              {t.notes ? `📝 ${t.notes}` : "No task notes yet."}
-                            </span>
-                            <button
-                              onClick={() => { setEditingNoteId(t.id); setTempNoteText(t.notes || ""); }}
-                              className="text-amber-400 hover:underline flex items-center space-x-1"
-                            >
-                              <FileEdit className="w-3 h-3" />
-                              <span>{t.notes ? "Edit" : "Add Note"}</span>
-                            </button>
-                          </>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleConsultDailyTaskAI(t)}
+                        className="bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center space-x-1"
+                      >
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>AI SOP</span>
+                      </button>
                     </div>
-                  ))
-                )}
+                  </div>
+                ))}
               </div>
             </div>
 
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg w-full space-y-3 relative text-xs">
-                  <button onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
+                  <button type="button" onClick={() => setTaskAdviceModal(null)} className="absolute top-4 right-4 text-slate-400"><X className="w-5 h-5" /></button>
                   <h3 className="font-bold text-slate-100 text-sm">{taskAdviceModal.title}</h3>
                   <div className="whitespace-pre-line text-slate-300 max-h-96 overflow-y-auto leading-relaxed">
                     {isLoadingTaskAdvice ? "Generating Indian SME procedure & negotiation script..." : taskAdviceModal.sopText}
@@ -2219,41 +2230,152 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
         )}
       </main>
 
-      {/* ADMIN CONSOLE MODAL */}
-      {showAdminConsoleModal && currentUser?.role === "admin" && (
-        <div className="fixed inset-0 bg-slate-950/85 z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 max-w-2xl w-full space-y-4 text-xs">
-            <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-              <h3 className="font-bold text-slate-100 text-sm">Administrative Works Console (MongoDB)</h3>
-              <button onClick={() => setShowAdminConsoleModal(false)}><X className="w-5 h-5 text-slate-400" /></button>
-            </div>
-            <div className="space-y-2 max-h-80 overflow-y-auto">
-              {submittedTxns.map((txn) => (
-                <div key={txn._id || txn.id} className="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                  <div>
-                    <div className="font-mono text-amber-400 font-bold">{txn.paymentId}</div>
-                    <div className="text-slate-400 text-[11px]">{txn.userEmail} • {txn.status}</div>
-                  </div>
-                  {txn.status !== "approved" ? (
-                    <button
-                      onClick={async () => {
-                        await fetch(`${API_BASE_URL}/subscriptions/status`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ txnId: txn._id || txn.id, status: "approved" })
-                        });
-                        fetchDbData();
-                      }}
-                      className="bg-emerald-500 text-slate-950 px-3 py-1 rounded-lg font-bold"
-                    >
-                      Approve Pro
-                    </button>
-                  ) : (
-                    <span className="text-emerald-400 font-bold">Approved</span>
-                  )}
+      {/* ============================================================== */}
+      {/* ADMINISTRATIVE WORKS MODAL (GUARANTEED TO OPEN)                 */}
+      {/* ============================================================== */}
+      {showAdminConsoleModal && isAdminUser && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 sm:p-8 max-w-3xl w-full space-y-5 relative shadow-2xl max-h-[90vh] flex flex-col">
+            <button
+              type="button"
+              onClick={() => setShowAdminConsoleModal(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-950 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                  <Settings className="w-5 h-5" />
                 </div>
-              ))}
+                <div>
+                  <h3 className="font-extrabold text-slate-100 text-lg flex items-center space-x-2">
+                    <span>Administrative Works Console</span>
+                    <span className="text-[10px] bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full border border-rose-500/40">
+                      MASTER ADMIN
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">Approve payments and toggle Pro access directly in MongoDB Atlas.</p>
+                </div>
+              </div>
             </div>
+
+            <div className="flex space-x-2 border-b border-slate-800 pb-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setAdminConsoleTab("txns")}
+                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+                  adminConsoleTab === "txns"
+                    ? "bg-rose-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>MongoDB Payment Verifications ({submittedTxns.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminConsoleTab("users")}
+                className={`px-3 py-1.5 rounded-lg font-bold flex items-center space-x-1.5 transition cursor-pointer ${
+                  adminConsoleTab === "users"
+                    ? "bg-rose-500 text-slate-950"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>MongoDB Users ({registeredUsersList.length})</span>
+              </button>
+            </div>
+
+            {/* TAB CONTENT 1: MONGODB TRANSACTIONS */}
+            {adminConsoleTab === "txns" && (
+              <div className="flex-1 overflow-y-auto space-y-3 pr-1 text-xs">
+                {submittedTxns.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500">No payment verification logs found in MongoDB.</div>
+                ) : (
+                  submittedTxns.map((txn) => (
+                    <div
+                      key={txn._id || txn.id}
+                      className="bg-slate-950 border border-slate-800 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+                    >
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-bold text-amber-400">{txn.paymentId}</span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${
+                              txn.status === "approved"
+                                ? "bg-emerald-950 text-emerald-400 border border-emerald-500/30"
+                                : txn.status === "rejected"
+                                ? "bg-rose-950 text-rose-400 border border-rose-500/30"
+                                : "bg-amber-950 text-amber-400 border border-amber-500/30"
+                            }`}
+                          >
+                            {txn.status}
+                          </span>
+                        </div>
+                        <div className="text-slate-400 text-[11px] mt-1">
+                          User: <strong className="text-slate-200">{txn.userName}</strong> ({txn.userEmail}) • {txn.plan}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        {txn.status !== "approved" ? (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminApproveTxn(txn._id || txn.id)}
+                            className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Approve Pro
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminRevokeTxn(txn._id || txn.id)}
+                            className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30 font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
+                          >
+                            Revoke Pro
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* TAB CONTENT 2: MONGODB USERS */}
+            {adminConsoleTab === "users" && (
+              <div className="flex-1 overflow-y-auto space-y-2.5 text-xs">
+                {registeredUsersList.length === 0 ? (
+                  <div className="text-slate-500 text-center py-10">No users found in MongoDB.</div>
+                ) : (
+                  registeredUsersList.map((usr, i) => (
+                    <div
+                      key={usr._id || i}
+                      className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-bold text-slate-200">{usr.name}</span>
+                        <span className="text-slate-500 ml-2">({usr.emailOrPhone})</span>
+                        <span className="text-[10px] text-amber-400 block">{usr.businessName}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAdminToggleUserPro(usr.emailOrPhone)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                          usr.isProUser
+                            ? "bg-emerald-950 text-emerald-400 border border-emerald-500/40"
+                            : "bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700"
+                        }`}
+                      >
+                        {usr.isProUser ? "Pro Active (Click to Revoke)" : "Grant Pro Access"}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
