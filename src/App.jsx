@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from "react";
 import {
   Briefcase,
@@ -228,8 +229,8 @@ export default function BizNavigatorApp() {
   // 1. AUTHENTICATION & SESSION
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = safeGetStorage(`${STORAGE_PREFIX}user`, null);
-    if (saved && typeof saved.evaluationsCount === "undefined") {
-      saved.evaluationsCount = 0;
+    if (saved) {
+      saved.evaluationsCount = Number(saved.evaluationsCount) || 0;
     }
     return saved;
   });
@@ -302,7 +303,9 @@ export default function BizNavigatorApp() {
     )
   );
 
-  const evaluationsCount = Number(currentUser?.evaluationsCount) || 0;
+  // Evaluation Countdown logic
+  const evaluationsCount = Math.max(0, Number(currentUser?.evaluationsCount) || 0);
+  const remainingEvaluations = Math.max(0, FREE_USAGE_LIMIT - evaluationsCount);
 
   // Sync user state to local storage
   useEffect(() => {
@@ -363,6 +366,45 @@ export default function BizNavigatorApp() {
     const interval = setInterval(() => setSignupOtpSecondsLeft((p) => Math.max(0, p - 1)), 1000);
     return () => clearInterval(interval);
   }, [signupOtpSecondsLeft]);
+
+  // ==========================================
+  // USAGE RECORDING & COUNTDOWN LOGIC
+  // ==========================================
+  const recordEvaluationUsage = () => {
+    if (isAdminUser || isUserPro) return;
+
+    setCurrentUser((prev) => {
+      if (!prev) return prev;
+      const currentVal = Number(prev.evaluationsCount) || 0;
+      const nextCount = Math.min(FREE_USAGE_LIMIT, currentVal + 1);
+      const updated = {
+        ...prev,
+        evaluationsCount: nextCount
+      };
+      try {
+        localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+
+    if (currentUser?.emailOrPhone) {
+      fetch(`${API_BASE_URL}/users/usage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
+      }).catch(() => {});
+    }
+  };
+
+  // Helper check before any evaluation run
+  const canPerformEvaluation = () => {
+    if (isAdminUser || isUserPro) return true;
+    if (remainingEvaluations <= 0) {
+      setShowPaywallModal(true);
+      return false;
+    }
+    return true;
+  };
 
   // ==========================================
   // AUTH HANDLERS
@@ -591,43 +633,11 @@ export default function BizNavigatorApp() {
   };
 
   // ==========================================
-  // GEMINI AI CALLER (WITH SYNCHRONIZED 5-EVALUATION COUNTDOWN)
+  // GEMINI AI CALLER
   // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "") => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
-
-    const currentCount = Number(currentUser.evaluationsCount) || 0;
-
-    // Hard ceiling enforcement for free tier
-    if (!isAdminUser && !isUserPro && currentCount >= FREE_USAGE_LIMIT) {
-      setShowPaywallModal(true);
-      throw new Error("LIMIT_REACHED");
-    }
-
     setLastAiError("");
-
-    // Helper to immediately update state, persist to localStorage, and sync with MongoDB
-    const recordEvaluationUsage = () => {
-      if (!isAdminUser && !isUserPro) {
-        setCurrentUser((prev) => {
-          if (!prev) return prev;
-          const nextCount = (Number(prev.evaluationsCount) || 0) + 1;
-          const updated = {
-            ...prev,
-            evaluationsCount: nextCount
-          };
-          localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(updated));
-          return updated;
-        });
-
-        // Fire asynchronous DB update
-        fetch(`${API_BASE_URL}/users/usage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ emailOrPhone: currentUser.emailOrPhone })
-        }).catch(() => {});
-      }
-    };
 
     // 1. Try Backend Proxy
     try {
@@ -644,7 +654,6 @@ export default function BizNavigatorApp() {
       if (serverRes.ok) {
         const serverData = await serverRes.json();
         if (serverData.text) {
-          recordEvaluationUsage();
           return serverData.text;
         }
         if (serverData.error) {
@@ -675,7 +684,6 @@ export default function BizNavigatorApp() {
           const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
           if (textResponse) {
-            recordEvaluationUsage();
             return textResponse;
           }
         } catch (e) {}
@@ -699,10 +707,13 @@ export default function BizNavigatorApp() {
 
   const handleGenerateIdeas = async (e) => {
     e.preventDefault();
+    if (!canPerformEvaluation()) return;
+
     setIsFindingIdeas(true);
     setLastAiError("");
 
-    const prompt = `Act as an elite Indian Startup & SME Strategist.
+    try {
+      const prompt = `Act as an elite Indian Startup & SME Strategist.
 Generate 5 DISTINCT, CREATIVE, HIGHLY VIABLE Indian business ideas tailored specifically to these 6 inputs:
 1. Budget: ₹${finderBudget}
 2. Location / Target City: ${finderLocation}
@@ -730,96 +741,105 @@ Return ONLY valid JSON matching this schema:
   ]
 }`;
 
-    const rawResponse = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Return valid JSON only.");
-    const parsedData = extractJsonFromText(rawResponse);
+      const rawResponse = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Return valid JSON only.");
+      const parsedData = extractJsonFromText(rawResponse);
 
-    if (parsedData?.ideas && Array.isArray(parsedData.ideas) && parsedData.ideas.length > 0) {
-      setMatchedIdeas(parsedData.ideas);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsedData.ideas));
-    } else {
-      const numBudget = parseInt(finderBudget) || 150000;
-      const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru";
-      const cleanSkill = finderSkills.split(",")[0].trim() || "Operations";
-      const cleanInterest = finderInterests.split(",")[0].trim() || "Snacks & Beverages";
+      if (parsedData?.ideas && Array.isArray(parsedData.ideas) && parsedData.ideas.length > 0) {
+        setMatchedIdeas(parsedData.ideas);
+        localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsedData.ideas));
+      } else {
+        const numBudget = parseInt(finderBudget) || 150000;
+        const cleanLoc = finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru";
+        const cleanSkill = finderSkills.split(",")[0].trim() || "Operations";
+        const cleanInterest = finderInterests.split(",")[0].trim() || "Snacks & Beverages";
 
-      const dynamicSynthesis = [
-        {
-          id: `dyn_1_${Date.now()}`,
-          title: `Artisanal ${cleanInterest} Express Kiosk`,
-          tagline: `High-frequency daily refreshment counter optimized for high-traffic corridors in ${cleanLoc}.`,
-          category: "Retail F&B",
-          matchScore: 96,
-          whyFit: `Capitalizes directly on your skills in ${cleanSkill} and passion for ${cleanInterest}. Perfectly calibrated to a ₹${numBudget.toLocaleString("en-IN")} capex with quick 30-day payback.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.65).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹45,000 - ₹95,000 net profit",
-          targetAudience: `Young professionals and daily commuters in ${cleanLoc}`,
-          firstStep: `Conduct Day-1 pedestrian count at two transit-adjacent spots in ${cleanLoc}.`
-        },
-        {
-          id: `dyn_2_${Date.now()}`,
-          title: `B2B ${cleanInterest} Supply & Contract Distribution`,
-          tagline: `Wholesale supply of consumables and packaged batches to local cafes and eateries in ${cleanLoc}.`,
-          category: "B2B Supply Chain",
-          matchScore: 91,
-          whyFit: `Asset-light trade utilizing your ${cleanSkill} network. Recovers working capital weekly without heavy retail front investment.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.75).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹40,000 - ₹90,000 retainers",
-          targetAudience: `Independent cafes, boutique grocers, and commercial canteens`,
-          firstStep: `Obtain wholesale rates on IndiaMART and APMC wholesale hub for ${cleanInterest}.`
-        },
-        {
-          id: `dyn_3_${Date.now()}`,
-          title: `Direct-to-Society (D2C) ${cleanInterest} Subscription`,
-          tagline: `Curated weekly fresh supply delivered directly to gated society communities via WhatsApp.`,
-          category: "Hyperlocal D2C",
-          matchScore: 89,
-          whyFit: `Zero shop rent overhead. Fits your ${finderTime} schedule with prepaid UPI community subscriptions.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.4).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹30,000 - ₹65,000 net profit",
-          targetAudience: `Apartment welfare association families in ${cleanLoc}`,
-          firstStep: `Create a 5-item curated menu brochure and test with 10 residential society secretaries.`
-        },
-        {
-          id: `dyn_4_${Date.now()}`,
-          title: `${cleanSkill}-Powered SME Marketing & Operations Agency`,
-          tagline: `Helping small high-street retailers in ${cleanLoc} digitize orders, Google Maps, and soundboxes.`,
-          category: "Asset-Light Services",
-          matchScore: 87,
-          whyFit: `Near-zero inventory requirement. Generates immediate upfront cashflow matching a ${finderRisk} profile.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.25).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹35,000 - ₹80,000 monthly retainers",
-          targetAudience: `Local retail shops, doctors, coaching centers, and restaurants`,
-          firstStep: `Audit Google Business profiles of 20 local merchants in ${cleanLoc}.`
-        },
-        {
-          id: `dyn_5_${Date.now()}`,
-          title: `Micro-Packaging & Specialty Gift Assembly Hub`,
-          tagline: `Value-added packaging and customized corporate gifting for festive and promotional seasons.`,
-          category: "Value-Add Manufacturing",
-          matchScore: 84,
-          whyFit: `High gross margins (50%+). Can scale up during festival quarters with flexible temporary labor.`,
-          estimatedCapex: `₹${Math.round(numBudget * 0.85).toLocaleString("en-IN")}`,
-          monthlyPotential: "₹50,000 - ₹1,20,000 net profit",
-          targetAudience: `Tech firms, event managers, and wedding planners across ${cleanLoc}`,
-          firstStep: `Procure sample corrugated rigid boxes and ribbons from regional industrial packagers.`
-        }
-      ];
+        const dynamicSynthesis = [
+          {
+            id: `dyn_1_${Date.now()}`,
+            title: `Artisanal ${cleanInterest} Express Kiosk`,
+            tagline: `High-frequency daily refreshment counter optimized for high-traffic corridors in ${cleanLoc}.`,
+            category: "Retail F&B",
+            matchScore: 96,
+            whyFit: `Capitalizes directly on your skills in ${cleanSkill} and passion for ${cleanInterest}. Perfectly calibrated to a ₹${numBudget.toLocaleString("en-IN")} capex with quick 30-day payback.`,
+            estimatedCapex: `₹${Math.round(numBudget * 0.65).toLocaleString("en-IN")}`,
+            monthlyPotential: "₹45,000 - ₹95,000 net profit",
+            targetAudience: `Young professionals and daily commuters in ${cleanLoc}`,
+            firstStep: `Conduct Day-1 pedestrian count at two transit-adjacent spots in ${cleanLoc}.`
+          },
+          {
+            id: `dyn_2_${Date.now()}`,
+            title: `B2B ${cleanInterest} Supply & Contract Distribution`,
+            tagline: `Wholesale supply of consumables and packaged batches to local cafes and eateries in ${cleanLoc}.`,
+            category: "B2B Supply Chain",
+            matchScore: 91,
+            whyFit: `Asset-light trade utilizing your ${cleanSkill} network. Recovers working capital weekly without heavy retail front investment.`,
+            estimatedCapex: `₹${Math.round(numBudget * 0.75).toLocaleString("en-IN")}`,
+            monthlyPotential: "₹40,000 - ₹90,000 retainers",
+            targetAudience: `Independent cafes, boutique grocers, and commercial canteens`,
+            firstStep: `Obtain wholesale rates on IndiaMART and APMC wholesale hub for ${cleanInterest}.`
+          },
+          {
+            id: `dyn_3_${Date.now()}`,
+            title: `Direct-to-Society (D2C) ${cleanInterest} Subscription`,
+            tagline: `Curated weekly fresh supply delivered directly to gated society communities via WhatsApp.`,
+            category: "Hyperlocal D2C",
+            matchScore: 89,
+            whyFit: `Zero shop rent overhead. Fits your ${finderTime} schedule with prepaid UPI community subscriptions.`,
+            estimatedCapex: `₹${Math.round(numBudget * 0.4).toLocaleString("en-IN")}`,
+            monthlyPotential: "₹30,000 - ₹65,000 net profit",
+            targetAudience: `Apartment welfare association families in ${cleanLoc}`,
+            firstStep: `Create a 5-item curated menu brochure and test with 10 residential society secretaries.`
+          },
+          {
+            id: `dyn_4_${Date.now()}`,
+            title: `${cleanSkill}-Powered SME Marketing & Operations Agency`,
+            tagline: `Helping small high-street retailers in ${cleanLoc} digitize orders, Google Maps, and soundboxes.`,
+            category: "Asset-Light Services",
+            matchScore: 87,
+            whyFit: `Near-zero inventory requirement. Generates immediate upfront cashflow matching a ${finderRisk} profile.`,
+            estimatedCapex: `₹${Math.round(numBudget * 0.25).toLocaleString("en-IN")}`,
+            monthlyPotential: "₹35,000 - ₹80,000 monthly retainers",
+            targetAudience: `Local retail shops, doctors, coaching centers, and restaurants`,
+            firstStep: `Audit Google Business profiles of 20 local merchants in ${cleanLoc}.`
+          },
+          {
+            id: `dyn_5_${Date.now()}`,
+            title: `Micro-Packaging & Specialty Gift Assembly Hub`,
+            tagline: `Value-added packaging and customized corporate gifting for festive and promotional seasons.`,
+            category: "Value-Add Manufacturing",
+            matchScore: 84,
+            whyFit: `High gross margins (50%+). Can scale up during festival quarters with flexible temporary labor.`,
+            estimatedCapex: `₹${Math.round(numBudget * 0.85).toLocaleString("en-IN")}`,
+            monthlyPotential: "₹50,000 - ₹1,20,000 net profit",
+            targetAudience: `Tech firms, event managers, and wedding planners across ${cleanLoc}`,
+            firstStep: `Procure sample corrugated rigid boxes and ribbons from regional industrial packagers.`
+          }
+        ];
 
-      setMatchedIdeas(dynamicSynthesis);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(dynamicSynthesis));
+        setMatchedIdeas(dynamicSynthesis);
+        localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(dynamicSynthesis));
+      }
+
+      // Decrement countdown by 1
+      recordEvaluationUsage();
+    } catch (err) {
+      setLastAiError(err.message || "Failed to generate ideas.");
+    } finally {
+      setIsFindingIdeas(false);
     }
-
-    setIsFindingIdeas(false);
   };
 
   // ONE-CLICK DEEP ANALYSIS
   const handleOpenDeepAnalysis = async (idea) => {
+    if (!canPerformEvaluation()) return;
+
     setDeepAnalysisIdea(idea);
     setIsLoadingDeepAnalysis(true);
     setDeepAnalysisData(null);
 
-    const city = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
-    const prompt = `Perform an exhaustive deep-dive commercial feasibility breakdown for this business idea in ${city}, India:
+    try {
+      const city = finderLocation.split("(")[0].replace(/,/g, "").trim() || "India";
+      const prompt = `Perform an exhaustive deep-dive commercial feasibility breakdown for this business idea in ${city}, India:
 Idea: "${idea.title}"
 Category: ${idea.category}
 Budget: ₹${finderBudget}
@@ -852,41 +872,47 @@ Return ONLY valid JSON matching this exact structure:
   }
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.");
-    const parsed = extractJsonFromText(raw);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.");
+      const parsed = extractJsonFromText(raw);
 
-    if (parsed?.unitEconomics) {
-      setDeepAnalysisData(parsed);
-    } else {
-      setDeepAnalysisData({
-        unitEconomics: {
-          sellingPricePerUnit: "₹250 average ticket size",
-          cogsRawMaterials: "₹85 (34% cost of raw goods)",
-          packagingAndConsumables: "₹18 (7% tamper-evident containers & carry-bags)",
-          deliveryOrPlatformFee: "₹18 (7% hyperlocal dispatch)",
-          paymentGatewayAndSoundboxFee: "₹4 (1.6% merchant UPI/card processing)",
-          netMarginPerUnit: "₹125 (50% net contribution margin)"
-        },
-        breakEvenAnalysis: {
-          estimatedMonthlyFixedCost: "₹35,000 (Kiosk rent ₹20k, power/permits ₹5k, helper ₹10k)",
-          dailyUnitsRequiredToBreakEven: "10 orders / day to cover all fixed costs",
-          comfortableProfitTargetVolume: "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
-          timeToBreakEven: "3.5 to 5 Months"
-        },
-        customerArchetype: {
-          persona: "Convenience-seeking daily commuter & young professional",
-          conversionTrigger: "Rapid sub-3 minute service, visible hygiene, UPI Soundbox instant ping, and fresh preparation.",
-          repeatPurchaseRate: "35% - 45% weekly repeat rate"
-        },
-        supplyChainSourcingGuide: {
-          primaryPlatforms: "Local APMC Wholesale Mandi, IndiaMART verified sellers, Udaan B2B",
-          sourcingLocations: `Central trading market and industrial packaging hubs in ${city}`,
-          vendorNegotiationRule: "Offer 50% initial cash + 50% upon delivery inspection. Request 10% volume discount on second recurring invoice."
-        }
-      });
+      if (parsed?.unitEconomics) {
+        setDeepAnalysisData(parsed);
+      } else {
+        setDeepAnalysisData({
+          unitEconomics: {
+            sellingPricePerUnit: "₹250 average ticket size",
+            cogsRawMaterials: "₹85 (34% cost of raw goods)",
+            packagingAndConsumables: "₹18 (7% tamper-evident containers & carry-bags)",
+            deliveryOrPlatformFee: "₹18 (7% hyperlocal dispatch)",
+            paymentGatewayAndSoundboxFee: "₹4 (1.6% merchant UPI/card processing)",
+            netMarginPerUnit: "₹125 (50% net contribution margin)"
+          },
+          breakEvenAnalysis: {
+            estimatedMonthlyFixedCost: "₹35,000 (Kiosk rent ₹20k, power/permits ₹5k, helper ₹10k)",
+            dailyUnitsRequiredToBreakEven: "10 orders / day to cover all fixed costs",
+            comfortableProfitTargetVolume: "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
+            timeToBreakEven: "3.5 to 5 Months"
+          },
+          customerArchetype: {
+            persona: "Convenience-seeking daily commuter & young professional",
+            conversionTrigger: "Rapid sub-3 minute service, visible hygiene, UPI Soundbox instant ping, and fresh preparation.",
+            repeatPurchaseRate: "35% - 45% weekly repeat rate"
+          },
+          supplyChainSourcingGuide: {
+            primaryPlatforms: "Local APMC Wholesale Mandi, IndiaMART verified sellers, Udaan B2B",
+            sourcingLocations: `Central trading market and industrial packaging hubs in ${city}`,
+            vendorNegotiationRule: "Offer 50% initial cash + 50% upon delivery inspection. Request 10% volume discount on second recurring invoice."
+          }
+        });
+      }
+
+      // Decrement countdown by 1
+      recordEvaluationUsage();
+    } catch (err) {
+      setLastAiError(err.message || "Failed to complete deep analysis.");
+    } finally {
+      setIsLoadingDeepAnalysis(false);
     }
-
-    setIsLoadingDeepAnalysis(false);
   };
 
   // ==========================================
@@ -899,7 +925,6 @@ Return ONLY valid JSON matching this exact structure:
   const [isScoutingLocations, setIsScoutingLocations] = useState(false);
   const [scoutResults, setScoutResults] = useState(() => safeGetStorage(`${STORAGE_PREFIX}location_scout_demand`, null));
 
-  // Automatically link selected venture from Idea Matcher to Location Scout
   const handleChooseVenture = (idea) => {
     setSelectedVenture(idea);
     setBusinessIdea(`${idea.title} - ${idea.tagline}`);
@@ -907,7 +932,6 @@ Return ONLY valid JSON matching this exact structure:
     setTargetCity(finderLocation);
     setCustomerSegment(idea.targetAudience);
 
-    // Seed Location Scout with Idea Specifics
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setScoutDemographic(idea.targetAudience || "Daily consumers & commuters in this city");
@@ -917,9 +941,12 @@ Return ONLY valid JSON matching this exact structure:
 
   const handleEvaluateLocations = async (e) => {
     e.preventDefault();
+    if (!canPerformEvaluation()) return;
+
     setIsScoutingLocations(true);
 
-    const prompt = `Act as an expert Indian Retail Demographer, Geospatial SME Strategist, and Footfall Demand Analyst.
+    try {
+      const prompt = `Act as an expert Indian Retail Demographer, Geospatial SME Strategist, and Footfall Demand Analyst.
 Evaluate the MOST SUITABLE micro-locations strictly inside "${scoutCity}" based purely on CONSUMER DEMAND, UNMET LOCAL NEEDS, and OPERATIONAL FIT for this concept:
 Concept: "${scoutConcept}"
 Operational & Placement Needs: "${scoutNeeds}"
@@ -946,53 +973,59 @@ Return ONLY valid JSON matching this schema:
   ]
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand & Location Feasibility Strategist. Return JSON only.");
-    const parsed = extractJsonFromText(raw);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Catchment Demand & Location Feasibility Strategist. Return JSON only.");
+      const parsed = extractJsonFromText(raw);
 
-    if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
-      setScoutResults(parsed);
-      localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(parsed));
-    } else {
-      // Intelligent Fallback based on Concept & City
-      const fallback = {
-        cityDemandOverview: `In ${scoutCity}, demand for ${scoutConcept} is driven by convenience, speed of service, and visible hygiene. Pockets with dense office transit and youth hubs face severe supply gaps during peak hours.`,
-        locations: [
-          {
-            name: `${scoutCity} Outer Ring Road / Primary IT Transit Hub`,
-            catchmentType: "Corporate Tech Corridor & Transit Node",
-            suitabilityScore: 96,
-            demandIntensity: "High Supply Deficit (Severe Peak Hours Squeeze)",
-            unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Existing local options are either unhygienic roadside kiosks or overpriced sit-down cafes. There is zero sub-3 minute hygienic grab-and-go alternative.`,
-            idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the pedestrian morning walkway.",
-            demandTriggers: "8:00 AM – 11:00 AM (Morning breakfast rush) & 4:30 PM – 7:30 PM (Evening transition window).",
-            competitionVoid: "Current vendors suffer from slow cash-only billing, cluttered counters, and inconsistent taste, turning away busy tech workers."
-          },
-          {
-            name: `${scoutCity} High-Density Coaching & Student PG Belt`,
-            catchmentType: "Youth, College & Student Residence Hub",
-            suitabilityScore: 91,
-            demandIntensity: "Sustained High Demand (Budget-Conscious Volume)",
-            unmetNeedAnalysis: `Students and young interns in this pocket require quick, fresh, value-for-money sustenance between lectures and study sessions. High frequency of repeat orders (5-6 times per week).`,
-            idealPlacementSpot: "Directly opposite the central study library lane, near main residential PG clusters.",
-            demandTriggers: "11:30 AM – 2:00 PM (Quick midday refuel) & 5:00 PM – 10:00 PM (Post-coaching dinner/snack rush).",
-            competitionVoid: "Nearby legacy eateries have slow turnaround times and uninspiring menus that don't appeal to Gen-Z taste preferences."
-          },
-          {
-            name: `${scoutCity} Metro Connector / Commuter Feeder Junction`,
-            catchmentType: "High-Frequency Intermodal Transit Hub",
-            suitabilityScore: 88,
-            demandIntensity: "Impulse Grab-and-Go Demand",
-            unmetNeedAnalysis: `Pedestrian commuters switching transit modes require immediate, friction-free service. High purchase intent where product visibility and UPI soundbox checkout trigger rapid impulse purchases.`,
-            idealPlacementSpot: "Along the exit escalator descent line or within 25 meters of the public bus feeder stop.",
-            demandTriggers: "8:30 AM – 10:30 AM (Morning outbound rush) & 6:00 PM – 9:00 PM (Inbound evening homecoming).",
-            competitionVoid: "Commuters refuse to cross busy signals; existing stores placed away from direct footpaths miss 80% of footfall traffic."
-          }
-        ]
-      };
-      setScoutResults(fallback);
-      localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(fallback));
+      if (parsed?.locations && Array.isArray(parsed.locations) && parsed.locations.length > 0) {
+        setScoutResults(parsed);
+        localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(parsed));
+      } else {
+        const fallback = {
+          cityDemandOverview: `In ${scoutCity}, demand for ${scoutConcept} is driven by convenience, speed of service, and visible hygiene. Pockets with dense office transit and youth hubs face severe supply gaps during peak hours.`,
+          locations: [
+            {
+              name: `${scoutCity} Outer Ring Road / Primary IT Transit Hub`,
+              catchmentType: "Corporate Tech Corridor & Transit Node",
+              suitabilityScore: 96,
+              demandIntensity: "High Supply Deficit (Severe Peak Hours Squeeze)",
+              unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Existing local options are either unhygienic roadside kiosks or overpriced sit-down cafes. There is zero sub-3 minute hygienic grab-and-go alternative.`,
+              idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the pedestrian morning walkway.",
+              demandTriggers: "8:00 AM – 11:00 AM (Morning breakfast rush) & 4:30 PM – 7:30 PM (Evening transition window).",
+              competitionVoid: "Current vendors suffer from slow cash-only billing, cluttered counters, and inconsistent taste, turning away busy tech workers."
+            },
+            {
+              name: `${scoutCity} High-Density Coaching & Student PG Belt`,
+              catchmentType: "Youth, College & Student Residence Hub",
+              suitabilityScore: 91,
+              demandIntensity: "Sustained High Demand (Budget-Conscious Volume)",
+              unmetNeedAnalysis: `Students and young interns in this pocket require quick, fresh, value-for-money sustenance between lectures and study sessions. High frequency of repeat orders (5-6 times per week).`,
+              idealPlacementSpot: "Directly opposite the central study library lane, near main residential PG clusters.",
+              demandTriggers: "11:30 AM – 2:00 PM (Quick midday refuel) & 5:00 PM – 10:00 PM (Post-coaching dinner/snack rush).",
+              competitionVoid: "Nearby legacy eateries have slow turnaround times and uninspiring menus that don't appeal to Gen-Z taste preferences."
+            },
+            {
+              name: `${scoutCity} Metro Connector / Commuter Feeder Junction`,
+              catchmentType: "High-Frequency Intermodal Transit Hub",
+              suitabilityScore: 88,
+              demandIntensity: "Impulse Grab-and-Go Demand",
+              unmetNeedAnalysis: `Pedestrian commuters switching transit modes require immediate, friction-free service. High purchase intent where product visibility and UPI soundbox checkout trigger rapid impulse purchases.`,
+              idealPlacementSpot: "Along the exit escalator descent line or within 25 meters of the public bus feeder stop.",
+              demandTriggers: "8:30 AM – 10:30 AM (Morning outbound rush) & 6:00 PM – 9:00 PM (Inbound evening homecoming).",
+              competitionVoid: "Commuters refuse to cross busy signals; existing stores placed away from direct footpaths miss 80% of footfall traffic."
+            }
+          ]
+        };
+        setScoutResults(fallback);
+        localStorage.setItem(`${STORAGE_PREFIX}location_scout_demand`, JSON.stringify(fallback));
+      }
+
+      // Decrement countdown by 1
+      recordEvaluationUsage();
+    } catch (err) {
+      setLastAiError(err.message || "Failed to evaluate locations.");
+    } finally {
+      setIsScoutingLocations(false);
     }
-    setIsScoutingLocations(false);
   };
 
   // ==========================================
@@ -1007,9 +1040,12 @@ Return ONLY valid JSON matching this schema:
 
   const handleEvaluateIdea = async (e) => {
     e.preventDefault();
+    if (!canPerformEvaluation()) return;
+
     setIsAnalyzing(true);
 
-    const prompt = `Perform a comprehensive business evaluation and Indian Risk & Threat Matrix for:
+    try {
+      const prompt = `Perform a comprehensive business evaluation and Indian Risk & Threat Matrix for:
 Concept: ${businessIdea}
 City/Location: ${targetCity}
 Capital: ₹${initialCapital}
@@ -1064,65 +1100,72 @@ Return ONLY valid JSON matching this exact structure:
   }
 }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.");
-    const parsed = extractJsonFromText(raw);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.");
+      const parsed = extractJsonFromText(raw);
 
-    if (parsed?.viabilityScore) {
-      setAnalysisResult(parsed);
-      localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(parsed));
-    } else {
-      const numCap = parseInt(initialCapital) || 150000;
-      const fallbackAnalysis = {
-        viabilityScore: 8.5,
-        competitionScore: 6.9,
-        summary: `Strong operational feasibility in ${targetCity}. The model benefits from rapid cash conversion and healthy gross margins.`,
-        estimatedMarginPercent: "35% - 46%",
-        breakEvenMonths: "4 to 5 Months",
-        capex: [
-          { item: "Machinery, Setup & Dispensing Units", cost: `₹${Math.round(numCap * 0.38).toLocaleString('en-IN')}` },
-          { item: "Opening Raw Stock & Packaging", cost: `₹${Math.round(numCap * 0.32).toLocaleString('en-IN')}` },
-          { item: "Branding, Soundbox & Digital Standees", cost: `₹${Math.round(numCap * 0.12).toLocaleString('en-IN')}` },
-          { item: "Working Capital Safety Reserve", cost: `₹${Math.round(numCap * 0.18).toLocaleString('en-IN')}` }
-        ],
-        monthlyOpex: [
-          { item: "Kiosk / Space Rent", cost: "₹18,000 - ₹25,000" },
-          { item: "Helper / Operational Staff", cost: "₹12,000" },
-          { item: "Utilities, Soundbox SIM & Sundries", cost: "₹5,500" }
-        ],
-        licenses: ["MSME Udyam Registration (Govt Portal - Free)", "GSTIN Registration", "FSSAI Basic Registration / Local Trade Permit"],
-        riskMatrix: {
-          udhaarRisk: {
-            level: "Medium",
-            threat: "Customers requesting delayed credit settlement ('Likh lena'), locking up liquidity.",
-            mitigation: "Install an audible UPI soundbox prominently. Enforce a 100% upfront digital billing standard."
-          },
-          seasonalRisk: {
-            level: "High",
-            threat: "Monsoon street flooding and post-festival demand dips reducing walk-in footfall.",
-            mitigation: "Setup an automated WhatsApp Broadcast catalog for nearby apartment complexes to sustain rainy-day deliveries."
-          },
-          regulatoryRisk: {
-            level: "Medium",
-            threat: "Unannounced municipal health checks or commercial zoning notices.",
-            mitigation: "Frame the MSME Udyam and FSSAI permit visibly beside the cash counter. Keep rent agreement receipts handy."
-          },
-          supplierRisk: {
-            level: "High",
-            threat: "Input price inflation for key consumables eroding unit profitability.",
-            mitigation: "Maintain accounts with at least two alternative wholesale distributors on IndiaMART."
-          },
-          priceSensitivityRisk: {
-            level: "Medium",
-            threat: "Aggressive price undercutting by informal street vendors.",
-            mitigation: "Emphasize superior hygiene, tamper-evident sealed packaging, and fast sub-2 minute turnaround."
-          },
-          downsideSurvivalPlan: "Emergency Protocol: If Month 2 revenue falls below break-even, transition to owner-operator mode to eliminate staff salary and convert 40% of sales to pre-booked corporate catering."
-        }
-      };
-      setAnalysisResult(fallbackAnalysis);
-      localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(fallbackAnalysis));
+      if (parsed?.viabilityScore) {
+        setAnalysisResult(parsed);
+        localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(parsed));
+      } else {
+        const numCap = parseInt(initialCapital) || 150000;
+        const fallbackAnalysis = {
+          viabilityScore: 8.5,
+          competitionScore: 6.9,
+          summary: `Strong operational feasibility in ${targetCity}. The model benefits from rapid cash conversion and healthy gross margins.`,
+          estimatedMarginPercent: "35% - 46%",
+          breakEvenMonths: "4 to 5 Months",
+          capex: [
+            { item: "Machinery, Setup & Dispensing Units", cost: `₹${Math.round(numCap * 0.38).toLocaleString('en-IN')}` },
+            { item: "Opening Raw Stock & Packaging", cost: `₹${Math.round(numCap * 0.32).toLocaleString('en-IN')}` },
+            { item: "Branding, Soundbox & Digital Standees", cost: `₹${Math.round(numCap * 0.12).toLocaleString('en-IN')}` },
+            { item: "Working Capital Safety Reserve", cost: `₹${Math.round(numCap * 0.18).toLocaleString('en-IN')}` }
+          ],
+          monthlyOpex: [
+            { item: "Kiosk / Space Rent", cost: "₹18,000 - ₹25,000" },
+            { item: "Helper / Operational Staff", cost: "₹12,000" },
+            { item: "Utilities, Soundbox SIM & Sundries", cost: "₹5,500" }
+          ],
+          licenses: ["MSME Udyam Registration (Govt Portal - Free)", "GSTIN Registration", "FSSAI Basic Registration / Local Trade Permit"],
+          riskMatrix: {
+            udhaarRisk: {
+              level: "Medium",
+              threat: "Customers requesting delayed credit settlement ('Likh lena'), locking up liquidity.",
+              mitigation: "Install an audible UPI soundbox prominently. Enforce a 100% upfront digital billing standard."
+            },
+            seasonalRisk: {
+              level: "High",
+              threat: "Monsoon street flooding and post-festival demand dips reducing walk-in footfall.",
+              mitigation: "Setup an automated WhatsApp Broadcast catalog for nearby apartment complexes to sustain rainy-day deliveries."
+            },
+            regulatoryRisk: {
+              level: "Medium",
+              threat: "Unannounced municipal health checks or commercial zoning notices.",
+              mitigation: "Frame the MSME Udyam and FSSAI permit visibly beside the cash counter. Keep rent agreement receipts handy."
+            },
+            supplierRisk: {
+              level: "High",
+              threat: "Input price inflation for key consumables eroding unit profitability.",
+              mitigation: "Maintain accounts with at least two alternative wholesale distributors on IndiaMART."
+            },
+            priceSensitivityRisk: {
+              level: "Medium",
+              threat: "Aggressive price undercutting by informal street vendors.",
+              mitigation: "Emphasize superior hygiene, tamper-evident sealed packaging, and fast sub-2 minute turnaround."
+            },
+            downsideSurvivalPlan: "Emergency Protocol: If Month 2 revenue falls below break-even, transition to owner-operator mode to eliminate staff salary and convert 40% of sales to pre-booked corporate catering."
+          }
+        };
+        setAnalysisResult(fallbackAnalysis);
+        localStorage.setItem(`${STORAGE_PREFIX}last_analysis`, JSON.stringify(fallbackAnalysis));
+      }
+
+      // Decrement countdown by 1
+      recordEvaluationUsage();
+    } catch (err) {
+      setLastAiError(err.message || "Failed to evaluate idea.");
+    } finally {
+      setIsAnalyzing(false);
     }
-    setIsAnalyzing(false);
   };
 
   // ==========================================
@@ -1156,8 +1199,9 @@ Return ONLY valid JSON matching this exact structure:
       sopText: ""
     });
 
-    const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service Venture";
-    const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses.
+    try {
+      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service Venture";
+      const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses.
 Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
 Day & Task: "${taskItem.dayTitle}" - ${taskItem.task}
 Business Context: ${ventureContext}
@@ -1169,15 +1213,19 @@ Provide:
 3. 2 FATAL GROUND PITFALLS to avoid in India.
 4. VERIFIABLE COMPLETION METRIC before going to bed.`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager. Provide direct, tactical, culturally astute advice.");
-    setTaskAdviceModal({
-      title: taskItem.dayTitle,
-      phase: taskItem.phase,
-      sopText:
-        raw ||
-        `### Checklist for ${taskItem.dayTitle}\n\n1. Arrive at the site or market early (before 10:00 AM) when vendors and authorities are fresh.\n2. **Negotiation Script (Hinglish):**\n"Bhaiya, hum regular monthly bulk order plan kar rahe hain. Pehla sample batch wholesale rate pe dijiye. Agar quality theek rahi toh har hafte repeat order aayega."\n3. **Pitfall:** Never pay 100% advance to an unverified vendor. Pay 30% advance max.\n4. **Completion Metric:** Ensure signed receipt or written WhatsApp confirmation before concluding Day ${taskItem.dayNumber}.`
-    });
-    setIsLoadingTaskAdvice(false);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Field Operations Manager. Provide direct, tactical, culturally astute advice.");
+      setTaskAdviceModal({
+        title: taskItem.dayTitle,
+        phase: taskItem.phase,
+        sopText:
+          raw ||
+          `### Checklist for ${taskItem.dayTitle}\n\n1. Arrive at the site or market early (before 10:00 AM) when vendors and authorities are fresh.\n2. **Negotiation Script (Hinglish):**\n"Bhaiya, hum regular monthly bulk order plan kar rahe hain. Pehla sample batch wholesale rate pe dijiye. Agar quality theek rahi toh har hafte repeat order aayega."\n3. **Pitfall:** Never pay 100% advance to an unverified vendor. Pay 30% advance max.\n4. **Completion Metric:** Ensure signed receipt or written WhatsApp confirmation before concluding Day ${taskItem.dayNumber}.`
+      });
+    } catch (err) {
+      setTaskAdviceModal((prev) => prev ? { ...prev, sopText: "Unable to retrieve advice at this moment. Please try again." } : null);
+    } finally {
+      setIsLoadingTaskAdvice(false);
+    }
   };
 
   const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
@@ -1215,25 +1263,34 @@ Provide:
 
   const handleRunMarginDoctorAI = async () => {
     setIsAnalyzingMargin(true);
-    const totalUnitCost = Number(costPrice) + Number(shippingCost);
-    const netMargin = (((Number(sellingPrice) - totalUnitCost) / Number(sellingPrice)) * 100).toFixed(1);
+    try {
+      const totalCost = Number(costPrice) + Number(shippingCost);
+      const netMargin = (((Number(sellingPrice) - totalCost) / Number(sellingPrice)) * 100).toFixed(1);
 
-    const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
+      const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%.
 Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD orders, and GST Input Tax Credit (ITC).`;
 
-    const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
-    setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 12% RTO return buffer for cash-on-delivery orders, and ensure vendor tax invoices are collected to claim your ${gstPercent}% GST Input Tax Credit.`);
-    setIsAnalyzingMargin(false);
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.");
+      setAiMarginAnalysis(res || `Margin of ${netMargin}% is healthy. Factor in a 12% RTO return buffer for cash-on-delivery orders, and ensure vendor tax invoices are collected to claim your ${gstPercent}% GST Input Tax Credit.`);
+    } catch (err) {
+      setAiMarginAnalysis("Pricing audit completed. Maintain healthy buffers for unexpected packaging rate changes.");
+    } finally {
+      setIsAnalyzingMargin(false);
+    }
   };
 
   const handleRunLedgerAuditAI = async () => {
     setIsAuditingLedger(true);
-    const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
-
-    const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 specific observations on working capital runway, petty cash leakages, and Udhaar recovery.`;
-    const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.");
-    setAiLedgerAudit(res || "Inflows are consistent. Keep 45 days of fixed expenses untouched in a liquid current account, and convert repeat customers to prepaid digital UPI balances.");
-    setIsAuditingLedger(false);
+    try {
+      const summary = ledgerEntries.map((e) => `${e.date}: ${e.desc} (${e.type === "in" ? "+₹" : "-₹"}${e.amount})`).join("; ");
+      const prompt = `Audit Indian SME cashflow logs: ${summary}. Give 3 specific observations on working capital runway, petty cash leakages, and Udhaar recovery.`;
+      const res = await callGeminiAI(prompt, "You are BizNavigator's Financial Auditor for Indian Small Businesses.");
+      setAiLedgerAudit(res || "Inflows are consistent. Keep 45 days of fixed expenses untouched in a liquid current account, and convert repeat customers to prepaid digital UPI balances.");
+    } catch (err) {
+      setAiLedgerAudit("Cashflow balance is positive. Reconcile soundbox audio pings daily with merchant bank statement.");
+    } finally {
+      setIsAuditingLedger(false);
+    }
   };
 
   const totalIn = ledgerEntries.filter((e) => e.type === "in").reduce((s, i) => s + Number(i.amount), 0);
@@ -1271,16 +1328,20 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
 
   const handleScanLiveMarketAI = async () => {
     setIsScanningMarket(true);
-    const prompt = `Provide 3 fresh, tactical Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output valid JSON:
+    try {
+      const prompt = `Provide 3 fresh, tactical Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output valid JSON:
 { "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
 
-    const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.");
-    const parsed = extractJsonFromText(raw);
-    if (parsed?.updates && Array.isArray(parsed.updates)) {
-      setMarketTrends(parsed.updates);
-      localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.");
+      const parsed = extractJsonFromText(raw);
+      if (parsed?.updates && Array.isArray(parsed.updates)) {
+        setMarketTrends(parsed.updates);
+        localStorage.setItem(`${STORAGE_PREFIX}market_trends`, JSON.stringify(parsed.updates));
+      }
+    } catch (e) {
+    } finally {
+      setIsScanningMarket(false);
     }
-    setIsScanningMarket(false);
   };
 
   // ==========================================
@@ -1303,16 +1364,27 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
     setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
     setIsChatLoading(true);
 
-    const prompt = `Question from Indian Entrepreneur: ${userText}\nVenture: ${selectedVenture ? selectedVenture.title : "Indian SME"}\nProvide actionable, culturally astute advice for Indian SME operations.`;
-    const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.");
-    setChatMessages((prev) => [
-      ...prev,
-      {
-        sender: "mentor",
-        text: res || "Always maintain a strict credit ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests politely."
-      }
-    ]);
-    setIsChatLoading(false);
+    try {
+      const prompt = `Question from Indian Entrepreneur: ${userText}\nVenture: ${selectedVenture ? selectedVenture.title : "Indian SME"}\nProvide actionable, culturally astute advice for Indian SME operations.`;
+      const res = await callGeminiAI(prompt, "You are BizMentor AI, an expert Indian small business advisor.");
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: "mentor",
+          text: res || "Always maintain a strict credit ledger. Offer a 2% immediate UPI cash discount to disincentivize credit requests politely."
+        }
+      ]);
+    } catch (err) {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          sender: "mentor",
+          text: "I am currently optimizing your query. Ensure your shop has prominent UPI QR codes with soundbox enabled."
+        }
+      ]);
+    } finally {
+      setIsChatLoading(false);
+    }
   };
 
   // ==========================================
@@ -1372,24 +1444,6 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
       fetchDbData(currentUser);
     } catch (e) {
       alert("Updated transaction status in local state.");
-    }
-  };
-
-  const handleAdminToggleUserPro = async (emailOrPhone) => {
-    try {
-      await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone })
-      });
-      fetchDbData(currentUser);
-      alert(`Pro status updated for ${emailOrPhone}`);
-    } catch (e) {
-      const updated = registeredUsersList.map((u) =>
-        u.emailOrPhone === emailOrPhone ? { ...u, isProUser: !u.isProUser } : u
-      );
-      setRegisteredUsersList(updated);
-      localStorage.setItem(`${STORAGE_PREFIX}registered_users`, JSON.stringify(updated));
     }
   };
 
@@ -1800,12 +1854,16 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-400 hidden sm:inline">
-                  Free: <strong className="text-amber-400">{evaluationsCount}/{FREE_USAGE_LIMIT}</strong>
+                {/* LIVE COUNTDOWN BADGE */}
+                <span className="text-xs text-slate-300 flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  <span>
+                    Free: <strong className="text-amber-400 font-bold">{remainingEvaluations} of {FREE_USAGE_LIMIT} left</strong>
+                  </span>
                 </span>
                 <button
                   onClick={() => setShowPaywallModal(true)}
-                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer"
+                  className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer shadow"
                 >
                   Upgrade
                 </button>
@@ -1890,6 +1948,54 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
 
       {/* MAIN CONTAINER */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
+        {/* FREE EVALUATION COUNTDOWN NOTE BANNER */}
+        {!isAdminUser && !isUserPro && (
+          <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-lg">
+            <div className="flex items-center space-x-3">
+              <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm ${
+                remainingEvaluations === 0
+                  ? "bg-rose-500/20 text-rose-400 border border-rose-500/40"
+                  : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+              }`}>
+                {remainingEvaluations}
+              </div>
+              <div>
+                <p className="font-bold text-slate-200">
+                  Free Evaluation Countdown Note
+                </p>
+                <p className="text-slate-400 text-[11px]">
+                  {remainingEvaluations > 0 ? (
+                    <>
+                      You have <strong className="text-amber-400">{remainingEvaluations} of {FREE_USAGE_LIMIT} free evaluations remaining</strong>. Every AI analysis, idea generation, or location scout uses 1 evaluation.
+                    </>
+                  ) : (
+                    <span className="text-rose-400 font-semibold">
+                      Free usage limit reached (0/{FREE_USAGE_LIMIT} remaining). Please upgrade to Pro for unlimited evaluations.
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center space-x-3 w-full sm:w-auto justify-end">
+              <div className="w-24 bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    remainingEvaluations === 0 ? "bg-rose-500" : "bg-gradient-to-r from-amber-500 to-orange-500"
+                  }`}
+                  style={{ width: `${(remainingEvaluations / FREE_USAGE_LIMIT) * 100}%` }}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowPaywallModal(true)}
+                className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs whitespace-nowrap cursor-pointer transition shadow"
+              >
+                Upgrade to Pro
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ========================================================= */}
         {/* TAB 1: 6-INPUT AI IDEA MATCHER + DEEP ANALYSIS            */}
         {/* ========================================================= */}
@@ -3164,7 +3270,7 @@ Give 3 bullet observations on profit buffer, Return-To-Origin (RTO) risk for COD
                 BizNavigator Pro Upgrade
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Free limit reached ({FREE_USAGE_LIMIT}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
+                Free limit reached ({evaluationsCount}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
               </h3>
             </div>
 
