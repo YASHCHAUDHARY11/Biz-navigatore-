@@ -435,5 +435,54 @@ app.post("/api/admin/toggle-pro", async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 });
+// SECURE GEMINI AI ROUTE - Uses your Vercel GEMINI_API_KEY environment variable
+app.post("/api/ai/generate", async (req, res) => {
+  try {
+    const { prompt, systemInstruction } = req.body;
+    const apiKey = process.env.GEMINI_API_KEY;
 
+    if (!apiKey) {
+      return res.status(500).json({ error: "GEMINI_API_KEY is not set in Vercel environment variables." });
+    }
+
+    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
+
+    for (const model of models) {
+      try {
+        const response = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey
+            },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `${systemInstruction || ""}\n\nTask:\n${prompt}` }] }],
+              generationConfig: {
+                temperature: 0.7,
+                responseMimeType: "application/json"
+              }
+            })
+          }
+        );
+
+        const data = await response.json();
+
+        if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+          return res.json({ text: data.candidates[0].content.parts[0].text });
+        }
+        if (data.error) {
+          console.warn(`Model ${model} error from Google:`, data.error.message);
+        }
+      } catch (modelErr) {
+        console.warn(`Fetch error for ${model}:`, modelErr.message);
+      }
+    }
+
+    return res.status(502).json({ error: "Gemini models were temporarily unavailable. Please retry." });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 export default app;
