@@ -45,7 +45,8 @@ import {
   Filter,
   Flame,
   FileEdit,
-  CheckCircle
+  CheckCircle,
+  Gauge
 } from "lucide-react";
 
 // --- CONFIGURATION CONSTANTS, MONGODB API & CREDENTIALS ---
@@ -472,17 +473,17 @@ export default function BizNavigatorApp() {
   };
 
   // ==============================================================
-  // TAB 1: AI IDEA MATCHER (5 IDEAS + 1-CLICK PIPELINE TO ALL TABS)
+  // TAB 1: 6-INPUT AI IDEA MATCHER & PIPELINE
   // ==============================================================
   const [finderBudget, setFinderBudget] = useState("150000");
-  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Hub)");
-  const [finderSkills, setFinderSkills] = useState("Direct Sales, Basic Cooking, Social Media Marketing");
-  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Specialty Tea, Eco-Packaging");
-  const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)");
-  const [finderRisk, setFinderRisk] = useState("Moderate (Balanced)");
+  const [finderLocation, setFinderLocation] = useState("Bengaluru (Tech & Startup Corridor)");
+  const [finderSkills, setFinderSkills] = useState("Sales, Basic Cooking, Social Media Outreach");
+  const [finderInterests, setFinderInterests] = useState("Healthy Snacks, Specialty Beverages, Local Retail");
+  const [finderTime, setFinderTime] = useState("Full-Time (8+ hrs/day)"); // Input 5
+  const [finderRisk, setFinderRisk] = useState("Medium Risk (Balanced)"); // Input 6
   const [isFindingIdeas, setIsFindingIdeas] = useState(false);
   const [matchedIdeas, setMatchedIdeas] = useState(() => {
-    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_5`);
+    const cached = localStorage.getItem(`${STORAGE_PREFIX}matched_ideas_6inputs`);
     return cached ? JSON.parse(cached) : null;
   });
 
@@ -490,15 +491,17 @@ export default function BizNavigatorApp() {
     e.preventDefault();
     setIsFindingIdeas(true);
 
-    const prompt = `Generate exactly 5 distinct, tailored, high-margin Indian business ideas based on these inputs:
-- Planned Capital/Budget: ₹${finderBudget}
-- City/Location: ${finderLocation}
-- Skills & Background: ${finderSkills}
-- Passions & Interests: ${finderInterests}
-- Commitment: ${finderTime}
-- Risk Appetite: ${finderRisk}
+    const prompt = `Act as an expert Indian Startup & SME Strategist.
+Generate exactly 5 distinct, high-margin, viable Indian business ideas evaluated against these EXACT 6 USER INPUTS:
+1. Budget / Capital: ₹${finderBudget}
+2. Target Location / City: ${finderLocation}
+3. Core Skills & Talents: ${finderSkills}
+4. Passions & Niche Interests: ${finderInterests}
+5. Working Time Commitment: ${finderTime}
+6. Risk Appetite: ${finderRisk}
 
-Make sure the 5 ideas represent diverse SME categories (e.g. 1 Retail/F&B, 1 B2B Supply/Packaging, 1 D2C/WhatsApp Commerce, 1 Micro-Services/Agency, 1 Micro-Manufacturing).
+CRITICAL: The recommended ideas MUST be strictly feasible within the user's working time commitment (${finderTime}) and risk appetite (${finderRisk}). (e.g. if part-time, do not suggest 14-hour physical restaurant; if low risk, do not suggest heavy CapEx machinery).
+
 Return ONLY valid JSON matching this schema:
 {
   "ideas": [
@@ -506,12 +509,12 @@ Return ONLY valid JSON matching this schema:
       "id": "idea_1",
       "title": "Business Concept Name",
       "tagline": "Clear 1-line pitch",
-      "category": "F&B / B2B / D2C / Services / Manufacturing",
+      "category": "F&B / B2B Supply / D2C / Micro-Services / Manufacturing",
       "matchScore": 96,
-      "whyFit": "Why this matches their skills and capital perfectly.",
+      "whyFit": "Detailed explanation of why this fits their skills, budget, working hours (${finderTime}) and risk level (${finderRisk}).",
       "estimatedCapex": "₹90,000",
       "monthlyPotential": "₹45,000 - ₹80,000 net profit",
-      "targetAudience": "Tech park employees, college youth & commuters",
+      "targetAudience": "Target demographic in ${finderLocation}",
       "firstStep": "Tangible Day 1 launch step in India"
     }
   ]
@@ -525,10 +528,10 @@ Return ONLY valid JSON matching this schema:
           tagline: "High-volume kiosk near office tech-parks or coaching hubs.",
           category: "Retail F&B",
           matchScore: 96,
-          whyFit: `Capitalizes on your culinary and direct sales interest with an accessible initial setup under ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
+          whyFit: `Perfect for your ${finderTime} schedule and ${finderRisk} appetite. Operates under an accessible initial setup within ₹${(finderBudget * 0.75).toLocaleString("en-IN")}.`,
           estimatedCapex: `₹${(finderBudget * 0.65).toFixed(0)}`,
           monthlyPotential: "₹45,000 - ₹85,000 net profit",
-          targetAudience: "Tech park employees, college youth & daily commuters",
+          targetAudience: "Tech park employees, college youth & commuters in " + finderLocation,
           firstStep: "Survey 2 commercial tech parks for footfall density between 4 PM to 7 PM."
         },
         {
@@ -537,10 +540,10 @@ Return ONLY valid JSON matching this schema:
           tagline: "B2B supply partner for local retail brands replacing single-use plastic.",
           category: "B2B Supply",
           matchScore: 92,
-          whyFit: "Matches sales capabilities with recurring monthly procurement contracts from clothing boutiques and sweet shops.",
+          whyFit: `Matches your sales skills and ${finderRisk} tolerance. Can be managed ${finderTime} with recurring monthly procurement contracts.`,
           estimatedCapex: `₹${(finderBudget * 0.85).toFixed(0)}`,
           monthlyPotential: "₹35,000 - ₹90,000 recurring retainers",
-          targetAudience: "Boutique clothing shops, sweet vendors, and local cafes",
+          targetAudience: "Boutique clothing shops, sweet vendors, and local cafes in " + finderLocation,
           firstStep: "Request wholesale pricing catalogs from paper bag converters on Indiamart."
         },
         {
@@ -549,9 +552,9 @@ Return ONLY valid JSON matching this schema:
           tagline: "Curated regional namkeen & organic spices delivered via gated society groups.",
           category: "D2C Commerce",
           matchScore: 89,
-          whyFit: "Zero commercial rent; lets you start from home and achieve fast cash conversion with repeat weekly orders.",
+          whyFit: `Zero commercial rent; ideal for ${finderTime} operation with low working capital risk and quick cash settlement.`,
           estimatedCapex: `₹${(finderBudget * 0.4).toFixed(0)}`,
-          monthlyPotential: "₹25,000 - ₹50,000 part-time",
+          monthlyPotential: "₹25,000 - ₹50,000 net profit",
           targetAudience: "Gated society residents & festive gift buyers",
           firstStep: "Set up a WhatsApp Business catalog and run an introductory sample pack offer."
         },
@@ -561,10 +564,10 @@ Return ONLY valid JSON matching this schema:
           tagline: "Helps traditional retail shops get online, optimize local SEO, and accept catalog orders.",
           category: "Micro-Services",
           matchScore: 87,
-          whyFit: "Extremely low CapEx requirement; relies purely on social media knowledge and feet-on-street merchant pitching.",
+          whyFit: `Asset-light service model with minimal downside risk. Perfectly fits ${finderTime} commitment with high profit margins.`,
           estimatedCapex: `₹${(finderBudget * 0.25).toFixed(0)}`,
           monthlyPotential: "₹30,000 - ₹70,000 monthly retainers",
-          targetAudience: "Local optometrists, salons, bakeries, and hardware merchants",
+          targetAudience: "Local salons, bakeries, doctors, and retail merchants",
           firstStep: "Audit 10 local retail stores on Google Maps to find missing photos, menus, and phone numbers."
         },
         {
@@ -573,7 +576,7 @@ Return ONLY valid JSON matching this schema:
           tagline: "Freshly pressed mustard, groundnut & coconut oil extraction for health-conscious households.",
           category: "Micro-Manufacturing",
           matchScore: 84,
-          whyFit: "Taps into surging demand for unadulterated cooking oils with high margins through direct neighborhood refill stations.",
+          whyFit: `High demand item matching your interest in healthy products. Requires focused ${finderTime} execution with steady repeat sales.`,
           estimatedCapex: `₹${(finderBudget * 0.95).toFixed(0)}`,
           monthlyPotential: "₹50,000 - ₹1,00,000 net profit",
           targetAudience: "Health-conscious families, gym-goers, and diabetic seniors",
@@ -586,7 +589,7 @@ Return ONLY valid JSON matching this schema:
       const res = await callGeminiAI(prompt, "You are BizNavigator's Lead Indian SME Matchmaker. Output JSON only.", fallback);
       const parsed = JSON.parse(res.replace(/```json|```/g, "").trim());
       setMatchedIdeas(parsed.ideas);
-      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_5`, JSON.stringify(parsed.ideas));
+      localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(parsed.ideas));
     } catch (err) {
       if (err.message !== "LIMIT_REACHED") console.error(err);
     } finally {
@@ -608,25 +611,26 @@ Return ONLY valid JSON matching this schema:
     setScoutConcept(idea.title);
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
 
-    // 3. Link to Daily Sprint (Adapt Sprint Focus to Chosen Idea)
+    // 3. Link to Daily Sprint (Adapt Sprint Tasks to Chosen Idea & Time Commitment)
+    const isPartTime = finderTime.toLowerCase().includes("part");
     const adaptedSprint = [
       {
         id: "day_1",
-        dayTitle: `Day 1: Ground Demand Intercept for ${idea.title.substring(0, 22)}...`,
+        dayTitle: `Day 1: Ground Demand Intercept for ${idea.title.substring(0, 20)}...`,
         phase: "Phase 1: Demand Validation",
-        task: `Survey 25 prospective customers in ${finderLocation} matching ${idea.targetAudience}.`,
-        timeEst: "3.5 hrs",
+        task: `Survey 20 target customers in ${finderLocation} matching ${idea.targetAudience}.`,
+        timeEst: isPartTime ? "2.5 hrs" : "4.0 hrs",
         budgetEst: "₹300",
         priority: "Critical",
         completed: false,
-        notes: `Focusing on ${idea.title}. First action: ${idea.firstStep}`
+        notes: `Focusing on ${idea.title} (${finderTime}, ${finderRisk}). Action: ${idea.firstStep}`
       },
       {
         id: "day_2",
-        dayTitle: `Day 2: Competitor Price & Margin Audit`,
+        dayTitle: `Day 2: Competitor Pricing & Margin Audit`,
         phase: "Phase 1: Demand Validation",
         task: `Audit 3 active competitors in ${idea.category} to benchmark retail prices and volume bottlenecks.`,
-        timeEst: "3 hrs",
+        timeEst: isPartTime ? "2 hrs" : "3 hrs",
         budgetEst: "₹500",
         priority: "High",
         completed: false,
@@ -634,10 +638,10 @@ Return ONLY valid JSON matching this schema:
       },
       {
         id: "day_3",
-        dayTitle: `Day 3: Wholesale Vendor & Mandi Price Lock-in`,
+        dayTitle: `Day 3: Wholesale Supplier & Mandi Price Lock-in`,
         phase: "Phase 2: Sourcing",
         task: `Identify 3 verified wholesale suppliers on Indiamart or local markets for ${idea.title}.`,
-        timeEst: "4 hrs",
+        timeEst: isPartTime ? "3 hrs" : "4.5 hrs",
         budgetEst: "₹0",
         priority: "Critical",
         completed: false,
@@ -648,7 +652,7 @@ Return ONLY valid JSON matching this schema:
         dayTitle: `Day 4: Custom Packaging & Consumables`,
         phase: "Phase 2: Sourcing",
         task: `Procure trial batch of branded packaging/containers suitable for ${idea.category}.`,
-        timeEst: "3 hrs",
+        timeEst: isPartTime ? "2 hrs" : "3 hrs",
         budgetEst: "₹4,500",
         priority: "High",
         completed: false,
@@ -702,10 +706,10 @@ Return ONLY valid JSON matching this schema:
       },
       {
         id: "day_9",
-        dayTitle: `Day 9: WhatsApp Business Catalog & Neighborhood Flyers`,
+        dayTitle: `Day 9: WhatsApp Business Catalog & Neighborhood Outreach`,
         phase: "Phase 4: Launch",
-        task: `Create digital catalog for ${idea.title} and distribute 500 promotional flyers in target zone.`,
-        timeEst: "3 hrs",
+        task: `Create digital catalog for ${idea.title} and distribute promotional flyers or broadcast in target groups.`,
+        timeEst: isPartTime ? "2 hrs" : "3 hrs",
         budgetEst: "₹1,200",
         priority: "Medium",
         completed: false,
@@ -716,7 +720,7 @@ Return ONLY valid JSON matching this schema:
         dayTitle: `Day 10: Soft Launch (Beta Batch & Customer Reviews)`,
         phase: "Phase 4: Launch",
         task: `Launch pilot run of ${idea.title} with an introductory offer to collect first 20 verified customer reviews.`,
-        timeEst: "5 hrs",
+        timeEst: isPartTime ? "3.5 hrs" : "5 hrs",
         budgetEst: "₹2,500",
         priority: "Critical",
         completed: false,
@@ -725,7 +729,7 @@ Return ONLY valid JSON matching this schema:
     ];
 
     setDailySprintTasks(adaptedSprint);
-    setActiveTab("location-scout"); // Direct user to the next logical step: finding the best spot!
+    setActiveTab("location-scout");
     alert(`🚀 Venture Selected: "${idea.title}"!\n\nAll tools (Location Scout 📍, Feasibility Evaluator, and 10-Day Sprint Guide) are now configured for this business.`);
   };
 
@@ -1198,7 +1202,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : authMode === "forgot" ? (
-              /* FORGOT PASSWORD WITH REAL EMAIL OTP */
+              /* VIEW B: REAL HOST EMAIL OTP FORGOT PASSWORD FLOW */
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                   <h3 className="font-bold text-slate-100 text-xs flex items-center space-x-1.5">
@@ -1333,7 +1337,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 )}
               </div>
             ) : (
-              /* LOGIN & ADMIN FORM */
+              /* VIEW C: SIGN IN & ADMIN AUTHENTICATION */
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
@@ -1436,12 +1440,11 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
     );
   }
 
-  // ==============================================================
-  // MAIN AUTHENTICATED APPLICATION SHELL
-  // ==============================================================
+  // ==========================================
+  // AUTHENTICATED APPLICATION
+  // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
-      {/* Top Header */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -1584,7 +1587,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
       {/* Main Container */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
         {/* ============================================================== */}
-        {/* TAB 1: AI IDEA MATCHER (5 IDEAS + CHOOSE VENTURE ACTION)       */}
+        {/* TAB 1: 6-INPUT AI IDEA MATCHER (5 IDEAS + UNIFIED PIPELINE)    */}
         {/* ============================================================== */}
         {activeTab === "idea-finder" && (
           <div className="space-y-8">
@@ -1594,23 +1597,27 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 <span>AI Opportunity Matcher</span>
               </span>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-100 mt-2">
-                Generate 5 High-Potential Indian Business Ideas Fitted to Your Constraints
+                Evaluate 5 High-Potential Indian Businesses Across 6 Dimensions
               </h1>
               <p className="text-sm text-slate-300 mt-1 max-w-3xl">
-                Choose any one of the 5 recommendations to automatically link it across the <strong>Location Scout</strong>, <strong>Feasibility Evaluator</strong>, and <strong>10-Day Sprint Guide</strong>.
+                Takes your <strong>Budget, Location, Skills, Interests, Working Time, and Risk Tolerance</strong> to formulate 5 tailored business ventures. Select one to automatically configure all tools.
               </p>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Form with all 6 Inputs */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <h2 className="text-base font-bold text-slate-100 flex items-center space-x-2 border-b border-slate-800 pb-3">
                   <Target className="w-5 h-5 text-amber-400" />
-                  <span>Input Your Profile</span>
+                  <span>Input Your 6 Parameters</span>
                 </h2>
 
                 <form onSubmit={handleGenerateIdeas} className="space-y-4 text-xs">
+                  {/* INPUT 1: BUDGET */}
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Planned Investment Budget (₹ INR)</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      1. Planned Investment Budget (₹ INR)
+                    </label>
                     <input
                       type="number"
                       required
@@ -1618,10 +1625,25 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                       onChange={(e) => setFinderBudget(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-amber-500"
                     />
+                    <div className="flex gap-1.5 mt-1.5">
+                      {["50000", "150000", "500000", "1500000"].map((b) => (
+                        <button
+                          key={b}
+                          type="button"
+                          onClick={() => setFinderBudget(b)}
+                          className="bg-slate-800 hover:bg-slate-700 text-[10px] text-amber-300 px-2 py-0.5 rounded border border-slate-700"
+                        >
+                          ₹{parseInt(b).toLocaleString("en-IN")}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
+                  {/* INPUT 2: LOCATION */}
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Target Indian City / Region</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      2. Target Location / Indian City
+                    </label>
                     <input
                       type="text"
                       required
@@ -1632,37 +1654,82 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     />
                   </div>
 
+                  {/* INPUT 3: SKILLS */}
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Your Skills & Strengths</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      3. Your Skills & Strengths
+                    </label>
                     <textarea
                       rows={2}
                       required
                       value={finderSkills}
                       onChange={(e) => setFinderSkills(e.target.value)}
+                      placeholder="e.g. Sales, Cooking, Accounting, Tech, Carpentry, Social Media"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
                   </div>
 
+                  {/* INPUT 4: INTERESTS */}
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">Interests & Hobbies</label>
+                    <label className="block font-semibold text-slate-300 mb-1">
+                      4. Passions & Niche Interests
+                    </label>
                     <input
                       type="text"
                       required
                       value={finderInterests}
                       onChange={(e) => setFinderInterests(e.target.value)}
+                      placeholder="e.g. Healthy Food, Fitness, Packaging, Regional Snacks, Apparel"
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
                     />
+                  </div>
+
+                  {/* INPUT 5 & 6 IN A 2-COLUMN GRID */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {/* INPUT 5: WORKING TIME */}
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1 flex items-center space-x-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        <span>5. Working Time</span>
+                      </label>
+                      <select
+                        value={finderTime}
+                        onChange={(e) => setFinderTime(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                      >
+                        <option>Full-Time (8+ hrs/day)</option>
+                        <option>Part-Time / Side Hustle (3-4 hrs/day)</option>
+                        <option>Weekend-Only (8-10 hrs on weekends)</option>
+                      </select>
+                    </div>
+
+                    {/* INPUT 6: RISK TOLERANCE */}
+                    <div>
+                      <label className="block font-semibold text-slate-300 mb-1 flex items-center space-x-1">
+                        <Gauge className="w-3.5 h-3.5 text-amber-400" />
+                        <span>6. Risk Level</span>
+                      </label>
+                      <select
+                        value={finderRisk}
+                        onChange={(e) => setFinderRisk(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-2 text-slate-200 focus:outline-none focus:border-amber-500"
+                      >
+                        <option>Low Risk (Capital Preservation)</option>
+                        <option>Medium Risk (Balanced)</option>
+                        <option>High Risk (Aggressive Scale)</option>
+                      </select>
+                    </div>
                   </div>
 
                   <button
                     type="submit"
                     disabled={isFindingIdeas}
-                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50"
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-bold py-3 rounded-xl transition flex items-center justify-center space-x-2 shadow-lg disabled:opacity-50 mt-2"
                   >
                     {isFindingIdeas ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Evaluating 5 Indian SME Models...</span>
+                        <span>Evaluating 6 Dimensions with Gemini...</span>
                       </>
                     ) : (
                       <>
@@ -1682,7 +1749,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                     <span>5 Tailored Opportunities</span>
                   </h3>
                   <span className="text-xs text-slate-400">
-                    {matchedIdeas ? "Click 'Choose This Idea' to follow into other tabs" : "Awaiting your inputs"}
+                    {matchedIdeas ? "Click 'Choose This Idea' to follow into other tabs" : "Awaiting your 6 parameters"}
                   </span>
                 </div>
 
@@ -1724,7 +1791,7 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                         </div>
 
                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300">
-                          <strong className="text-amber-400">Why it matches you: </strong>
+                          <strong className="text-amber-400">Why it matches your 6 inputs: </strong>
                           {idea.whyFit}
                         </div>
 
@@ -1763,8 +1830,8 @@ Never pay 100% upfront in cash without an official LR proof or counter receipt.`
                 ) : (
                   <div className="h-72 border border-dashed border-slate-800 rounded-3xl flex flex-col items-center justify-center p-8 text-center text-slate-500">
                     <Lightbulb className="w-10 h-10 text-slate-700 mb-2" />
-                    <p className="text-sm font-semibold text-slate-400">Ready to Generate 5 Opportunities</p>
-                    <p className="text-xs max-w-sm mt-1">Submit your profile on the left to evaluate 5 high-potential Indian businesses.</p>
+                    <p className="text-sm font-semibold text-slate-400">Ready to Evaluate 5 Opportunities</p>
+                    <p className="text-xs max-w-sm mt-1">Fill out your 6 profile constraints on the left to evaluate matching ventures.</p>
                   </div>
                 )}
               </div>
