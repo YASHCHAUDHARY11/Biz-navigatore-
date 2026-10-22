@@ -8,7 +8,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. MONGODB CONNECTION
+// 1. MONGODB ATLAS CONNECTION
 const MONGODB_URI =
   process.env.MONGODB_URI ||
   "mongodb+srv://yash963957_db_user:z83U3l4zKQnuo353@biznavigator.hgohuud.mongodb.net/biznavigator?retryWrites=true&w=majority";
@@ -55,7 +55,6 @@ const UserSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Temporary OTP Store for Registration Verification
 const PendingRegistrationSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -126,7 +125,7 @@ app.post("/api/auth/register-otp", async (req, res) => {
             <h2 style="color: #f59e0b; text-align: center; margin-bottom: 5px;">BizNavigator 🇮🇳</h2>
             <p style="text-align: center; color: #64748b; font-size: 13px; margin-top: 0;">Empowering Indian SMEs</p>
             <p>Namaste <strong>${name}</strong>,</p>
-            <p>BizNavigator par apna account verify karne ke liye 6-digit OTP enter karein:</p>
+            <p>BizNavigator par account verify karne ke liye 6-digit OTP enter karein:</p>
             <div style="text-align: center; margin: 25px 0;">
               <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 12px 28px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
             </div>
@@ -147,7 +146,7 @@ app.post("/api/auth/register-otp", async (req, res) => {
   }
 });
 
-// Verify Registration OTP & Save to MongoDB
+// Verify Registration OTP & Register User
 app.post("/api/auth/register-verify", async (req, res) => {
   try {
     const { emailOrPhone, otp } = req.body;
@@ -279,7 +278,7 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
           <div style="font-family: Arial, sans-serif; max-width: 500px; margin: auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
             <h2 style="color: #f59e0b; text-align: center;">BizNavigator 🇮🇳</h2>
             <p>Namaste <strong>${user.name}</strong>,</p>
-            <p>Aapke BizNavigator account ka password reset request receive hua hai. Aapka 6-digit OTP:</p>
+            <p>Aapke BizNavigator account ka password reset OTP niche diya gaya hai:</p>
             <div style="text-align: center; margin: 25px 0;">
               <span style="font-size: 28px; font-weight: bold; letter-spacing: 6px; background: #0f172a; color: #f59e0b; padding: 12px 28px; border-radius: 8px; display: inline-block;">${generatedOtp}</span>
             </div>
@@ -300,7 +299,7 @@ app.post("/api/auth/forgot-otp", async (req, res) => {
   }
 });
 
-// Forgot Password - Reset
+// Forgot Password - Reset Password
 app.post("/api/auth/reset-password", async (req, res) => {
   try {
     const { email, otp, newPassword } = req.body;
@@ -347,7 +346,135 @@ app.post("/api/users/usage", async (req, res) => {
   }
 });
 
-// 5. SUBSCRIPTION & PAYMENT ROUTES
+// ==========================================
+// 5. DIRECT ADMINISTRATIVE & SUBSCRIPTION API ROUTES
+// ==========================================
+
+// 1. Fetch live user profile
+app.get("/api/users/profile", async (req, res) => {
+  try {
+    const { email } = req.query;
+    const user = await User.findOne({ emailOrPhone: email?.toLowerCase() }).select("-password");
+    return res.json(user || {});
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 2. Fetch all subscriptions from MongoDB
+app.get("/api/subscriptions/all", async (req, res) => {
+  try {
+    const txns = await Transaction.find().sort({ createdAt: -1 });
+    return res.json(txns);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 3. Update subscription status in MongoDB
+app.post("/api/subscriptions/status", async (req, res) => {
+  try {
+    const { txnId, paymentId, userEmail, status } = req.body;
+    let txn = null;
+
+    if (txnId && mongoose.isValidObjectId(txnId)) {
+      txn = await Transaction.findById(txnId);
+    }
+    if (!txn && paymentId) {
+      txn = await Transaction.findOne({ paymentId: paymentId.trim() });
+    }
+
+    if (txn) {
+      txn.status = status;
+      await txn.save();
+    }
+
+    const targetEmail = (userEmail || txn?.userEmail)?.trim().toLowerCase();
+    if (targetEmail) {
+      await User.findOneAndUpdate(
+        { emailOrPhone: targetEmail },
+        { isProUser: status === "approved" }
+      );
+    }
+
+    return res.json({ success: true, message: `Status updated to ${status}.` });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 4. Fetch all registered users
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const users = await User.find().select("-password").sort({ createdAt: -1 });
+    return res.json(users);
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 5. Toggle user Pro membership
+app.post("/api/admin/toggle-pro", async (req, res) => {
+  try {
+    const { emailOrPhone, isProUser } = req.body;
+    const targetEmail = emailOrPhone?.toLowerCase();
+    const user = await User.findOne({ emailOrPhone: targetEmail });
+    if (!user) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    user.isProUser = typeof isProUser === "boolean" ? isProUser : !user.isProUser;
+    await user.save();
+    return res.json({ success: true, isProUser: user.isProUser });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 6. Reset evaluation count to 0
+app.post("/api/admin/reset-evaluations", async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+    await User.findOneAndUpdate({ emailOrPhone: emailOrPhone?.toLowerCase() }, { evaluationsCount: 0 });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 7. Delete user from MongoDB
+app.post("/api/admin/delete-user", async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+    await User.findOneAndDelete({ emailOrPhone: emailOrPhone?.toLowerCase() });
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// 8. Manually grant Pro access
+app.post("/api/admin/grant-pro", async (req, res) => {
+  try {
+    const { emailOrPhone, plan } = req.body;
+    const targetEmail = emailOrPhone?.toLowerCase();
+
+    await User.findOneAndUpdate({ emailOrPhone: targetEmail }, { isProUser: true });
+    await Transaction.create({
+      paymentId: `manual_${Date.now()}`,
+      userEmail: targetEmail,
+      userName: "Manual Admin Grant",
+      plan: plan || "Monthly Pro",
+      status: "approved"
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Submit Razorpay ID (from User modal)
 app.post("/api/subscriptions/submit", async (req, res) => {
   try {
     const { paymentId, userEmail, userName, plan } = req.body;
@@ -372,75 +499,6 @@ app.post("/api/subscriptions/submit", async (req, res) => {
 
     await txn.save();
     return res.status(201).json({ message: "Submitted successfully!", transaction: txn });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/subscriptions/all", async (req, res) => {
-  try {
-    const txns = await Transaction.find().sort({ createdAt: -1 });
-    return res.json(txns);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// Safe Admin Approve / Reject Transaction (By ObjectId or PaymentId)
-app.post("/api/subscriptions/status", async (req, res) => {
-  try {
-    const { txnId, paymentId, userEmail, status } = req.body;
-    let txn = null;
-
-    if (txnId && mongoose.isValidObjectId(txnId)) {
-      txn = await Transaction.findById(txnId);
-    }
-    if (!txn && paymentId) {
-      txn = await Transaction.findOne({ paymentId: paymentId.trim() });
-    }
-
-    if (!txn) {
-      return res.status(404).json({ error: "Transaction not found." });
-    }
-
-    txn.status = status;
-    await txn.save();
-
-    const targetEmail = (userEmail || txn.userEmail)?.trim().toLowerCase();
-    if (targetEmail) {
-      const user = await User.findOne({ emailOrPhone: targetEmail });
-      if (user) {
-        user.isProUser = status === "approved";
-        await user.save();
-      }
-    }
-
-    return res.json({ message: `Transaction marked as ${status}.`, transaction: txn });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/admin/users", async (req, res) => {
-  try {
-    const users = await User.find({}, "-password").sort({ createdAt: -1 });
-    return res.json(users);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/admin/toggle-pro", async (req, res) => {
-  try {
-    const { emailOrPhone } = req.body;
-    const user = await User.findOne({ emailOrPhone: emailOrPhone?.toLowerCase() });
-    if (!user) {
-      return res.status(404).json({ error: "User not found." });
-    }
-
-    user.isProUser = !user.isProUser;
-    await user.save();
-    return res.json({ message: "Pro status updated", isProUser: user.isProUser });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
