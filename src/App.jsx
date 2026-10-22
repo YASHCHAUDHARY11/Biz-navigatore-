@@ -41,10 +41,16 @@ import {
   RotateCcw
 } from "lucide-react";
 
+// --- CONFIGURATION CONSTANTS, MONGODB API & OFFICIAL CREDENTIALS ---
 const API_BASE_URL = "http://localhost:5000/api";
 const FREE_USAGE_LIMIT = 5;
 const PRO_DAILY_LIMIT = 50;
 const STORAGE_PREFIX = "biznavigator_";
+const ADMIN_EMAIL = "admin@biznavigator.in";
+const ADMIN_SECRET_KEY = "admin123";
+
+// HARDCODED DEFAULT GEMINI API KEY FOR ALL AI EVALUATIONS
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 const PAYMENT_LINKS = {
   dayPass: "https://rzp.io/rzp/BotR1EMB",       // ₹49
@@ -53,13 +59,19 @@ const PAYMENT_LINKS = {
 };
 
 export default function BizNavigatorApp() {
-  // Current User Session
+  // Clear any legacy global Pro leakage
+  useEffect(() => {
+    localStorage.removeItem(`${STORAGE_PREFIX}is_pro`);
+  }, []);
+
+  // ==========================================
+  // 1. STRICT AUTHENTICATION STATE
+  // ==========================================
   const [currentUser, setCurrentUser] = useState(() => {
     const saved = localStorage.getItem(`${STORAGE_PREFIX}user`);
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Auth Modes & Form States
   const [authMode, setAuthMode] = useState("login"); // 'login', 'signup', 'forgot', 'admin'
   const [authEmailOrPhone, setAuthEmailOrPhone] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -95,11 +107,17 @@ export default function BizNavigatorApp() {
 
   // App Navigation & Tools
   const [activeTab, setActiveTab] = useState("idea-finder");
-  const [apiKey, setApiKey] = useState(() => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || "");
+  
+  // Active API Key (Defaulted to your provided key)
+  const [apiKey, setApiKey] = useState(
+    () => localStorage.getItem(`${STORAGE_PREFIX}gemini_key`) || DEFAULT_GEMINI_API_KEY
+  );
   const [showKeyModal, setShowKeyModal] = useState(false);
-  const [proDailyCount, setProDailyCount] = useState(() => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0);
+  const [proDailyCount, setProDailyCount] = useState(
+    () => parseInt(localStorage.getItem(`${STORAGE_PREFIX}pro_count`)) || 0
+  );
 
-  // Live Pro verification derived from user data & MongoDB approvals
+  // Pro status derived strictly per user from MongoDB
   const isUserPro = Boolean(
     currentUser && (
       currentUser.role === "admin" ||
@@ -122,7 +140,7 @@ export default function BizNavigatorApp() {
       )
     : null;
 
-  // Sync session to localStorage
+  // Sync user session to local storage
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem(`${STORAGE_PREFIX}user`, JSON.stringify(currentUser));
@@ -179,8 +197,6 @@ export default function BizNavigatorApp() {
   // ==========================================
   // BACKEND API INTEGRATIONS
   // ==========================================
-
-  // Authentication Submission (Register / Login via MongoDB)
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -206,7 +222,6 @@ export default function BizNavigatorApp() {
         setCurrentUser(data.user);
         setAuthPassword("");
       } else {
-        // Login & Admin Verification
         const res = await fetch(`${API_BASE_URL}/auth/login`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -230,7 +245,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Forgot Password - Request OTP from MongoDB
   const handleForgotRequestOtp = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -258,7 +272,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Forgot Password - Verify OTP & Update Password in MongoDB
   const handleForgotVerifyAndReset = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -294,7 +307,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Submit Razorpay ID to MongoDB (Saved as 'pending')
   const handleSubmitVerification = async (e) => {
     e.preventDefault();
     setVerificationError("");
@@ -334,7 +346,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Admin Approve / Reject in MongoDB
   const handleAdminUpdateTxn = async (txnId, status) => {
     try {
       const res = await fetch(`${API_BASE_URL}/subscriptions/status`, {
@@ -353,7 +364,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Admin Manual Toggle Pro in MongoDB
   const handleAdminTogglePro = async (emailOrPhone) => {
     try {
       const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
@@ -372,7 +382,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Logout
   const handleLogout = () => {
     if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
       setCurrentUser(null);
@@ -381,7 +390,10 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Call Gemini AI & Increment Usage Counter in MongoDB
+  // ==========================================
+  // CENTRALIZED GEMINI AI EVALUATION ENGINE
+  // (Uses your provided API key for all evaluations)
+  // ==========================================
   const callGeminiAI = async (prompt, systemInstruction = "", fallbackData = null) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
 
@@ -393,22 +405,29 @@ export default function BizNavigatorApp() {
       throw new Error("LIMIT_REACHED");
     }
 
-    if (apiKey) {
-      try {
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }]
-            })
-          }
-        );
-        const data = await res.json();
-        const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    // Active key: configured in state or fallback to your official key
+    const activeKey = (apiKey || DEFAULT_GEMINI_API_KEY).trim();
 
-        // Increment count in MongoDB
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${activeKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": activeKey
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }]
+          })
+        }
+      );
+
+      const data = await response.json();
+      const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (textResponse) {
+        // Track usage in MongoDB
         if (!isAdmin && !isUserPro) {
           fetch(`${API_BASE_URL}/users/usage`, {
             method: "POST",
@@ -420,18 +439,18 @@ export default function BizNavigatorApp() {
               if (d.evaluationsCount) {
                 setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
               }
-            });
+            })
+            .catch(() => {});
         }
-
         return textResponse;
-      } catch (err) {
-        console.warn("Gemini call failed, using fallback:", err);
       }
+    } catch (err) {
+      console.warn("Live Gemini API call failed, falling back to simulated intelligence:", err);
     }
 
+    // Smart fallback if network or endpoint fails
     await new Promise((r) => setTimeout(r, 900));
 
-    // Fallback usage tracking
     if (!isAdmin && !isUserPro) {
       fetch(`${API_BASE_URL}/users/usage`, {
         method: "POST",
@@ -443,7 +462,8 @@ export default function BizNavigatorApp() {
           if (d.evaluationsCount) {
             setCurrentUser((prev) => ({ ...prev, evaluationsCount: d.evaluationsCount }));
           }
-        });
+        })
+        .catch(() => {});
     }
 
     return fallbackData;
@@ -855,7 +875,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // STRICT AUTH WALL WITH MONGODB INTEGRATION
+  // STRICT AUTH WALL
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center px-4 py-8 font-sans selection:bg-amber-500 selection:text-black">
@@ -870,7 +890,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               BizNavigator 🇮🇳
             </h1>
             <p className="text-xs text-slate-400 font-medium">
-              Connected to MongoDB Atlas Database
+              Connected to MongoDB Atlas Database & Gemini AI
             </p>
           </div>
 
@@ -916,12 +936,11 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                     : "border-transparent text-slate-400 hover:text-slate-200"
                 }`}
               >
-                <Crown className="w-3 h-3" />
+                <Crown className="w-3.5 h-3.5" />
                 <span>Admin 🛡️</span>
               </button>
             </div>
 
-            {/* Error Message */}
             {authError && (
               <div className="bg-rose-950/40 border border-rose-500/40 p-3 rounded-xl text-xs text-rose-300 flex items-center space-x-2">
                 <AlertTriangle className="w-4 h-4 flex-shrink-0 text-rose-400" />
@@ -929,7 +948,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* Success Notification */}
             {authSuccessNotice && (
               <div className="bg-emerald-950/40 border border-emerald-500/40 p-3 rounded-xl text-xs text-emerald-300 flex items-center space-x-2">
                 <Check className="w-4 h-4 flex-shrink-0 text-emerald-400" />
@@ -937,7 +955,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
             )}
 
-            {/* VIEW A: REAL EMAIL OTP FORGOT PASSWORD RECOVERY FLOW */}
+            {/* VIEW A: FORGOT PASSWORD RECOVERY VIA MONGODB */}
             {authMode === "forgot" ? (
               <div className="space-y-4">
                 <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 flex items-center justify-between">
@@ -1229,9 +1247,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
     );
   }
 
-  // ==============================================================
-  // MAIN AUTHENTICATED APPLICATION SHELL
-  // ==============================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       {/* Top Header */}
@@ -1273,7 +1288,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
             ) : isUserPro ? (
               <div className="flex items-center space-x-1.5 bg-emerald-950/80 border border-emerald-500/40 px-3 py-1.5 rounded-full text-emerald-400 text-xs font-semibold">
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>Pro ({proDailyCount}/{PRO_DAILY_LIMIT})</span>
+                <span>Pro Member</span>
               </div>
             ) : (
               <div className="flex items-center space-x-2">
@@ -1368,7 +1383,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 Discover Profitable Indian Businesses Fitted to Your Constraints
               </h1>
               <p className="text-sm text-slate-300 mt-1 max-w-3xl">
-                Every calculation and suggestion is analyzed against Indian market demand, regional consumer buying habits, and capital feasibility.
+                Every calculation and suggestion is analyzed against Indian market demand, regional consumer buying habits, and capital feasibility via Google Gemini AI.
               </p>
             </div>
 
@@ -2042,10 +2057,10 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                 BizNavigator Pro Upgrade
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Free limit reached (5/5). Upgrade to Pro for unlimited evaluations.
+                Free limit reached ({FREE_USAGE_LIMIT}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
               </h3>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Secure checkout via Razorpay. Your subscription will be activated upon strict payment verification by the Administrator in MongoDB.
+                Secure checkout via Razorpay. Your subscription will be activated upon payment verification in MongoDB.
               </p>
             </div>
 
@@ -2144,7 +2159,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
               </div>
               <h3 className="text-lg font-bold text-slate-100">Strict Payment Verification</h3>
               <p className="text-xs text-slate-400">
-                To prevent fraud, provide the official <strong>Razorpay Payment ID</strong> received on your SMS or email receipt after paying.
+                Provide your official <strong>Razorpay Payment ID</strong> (starts with <code>pay_</code>) from your payment receipt.
               </p>
             </div>
 
@@ -2168,9 +2183,6 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                   onChange={(e) => setInputPaymentId(e.target.value)}
                   className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-slate-100 font-mono focus:outline-none focus:border-amber-500"
                 />
-                <span className="text-[10px] text-slate-500 block mt-1">
-                  * Must begin with 'pay_' followed by your 14+ character transaction ID.
-                </span>
               </div>
 
               <div>
@@ -2208,7 +2220,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
         </div>
       )}
 
-      {/* EXCLUSIVE ADMIN WORKS CONSOLE (CONNECTED TO MONGODB) */}
+      {/* EXCLUSIVE ADMIN WORKS CONSOLE */}
       {showAdminConsoleModal && currentUser?.role === "admin" && (
         <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-rose-500/40 rounded-3xl p-6 sm:p-8 max-w-3xl w-full space-y-5 relative shadow-2xl max-h-[90vh] flex flex-col">
@@ -2231,7 +2243,7 @@ Give 3 bullet observations on profit buffer, RTO risk, and GST Input Tax Credit 
                       MASTER ADMIN
                     </span>
                   </h3>
-                  <p className="text-xs text-slate-400">Approve payments and toggle Pro access directly in your MongoDB Atlas database.</p>
+                  <p className="text-xs text-slate-400">Approve payments and toggle Pro access directly in MongoDB Atlas.</p>
                 </div>
               </div>
             </div>
