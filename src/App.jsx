@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Briefcase,
   TrendingUp,
@@ -193,25 +194,25 @@ const INITIAL_10_DAY_SPRINT = [
 
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
+  const cleaned = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+
   try {
-    return JSON.parse(rawText.trim());
+    return JSON.parse(cleaned);
   } catch (e) {}
 
-  const firstBrace = rawText.indexOf("{");
-  const lastBrace = rawText.lastIndexOf("}");
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = rawText.substring(firstBrace, lastBrace + 1);
     try {
-      return JSON.parse(candidate);
+      return JSON.parse(cleaned.substring(firstBrace, lastBrace + 1));
     } catch (e) {}
   }
 
-  const firstBracket = rawText.indexOf("[");
-  const lastBracket = rawText.lastIndexOf("]");
+  const firstBracket = cleaned.indexOf("[");
+  const lastBracket = cleaned.lastIndexOf("]");
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-    const candidateArr = rawText.substring(firstBracket, lastBracket + 1);
     try {
-      return JSON.parse(candidateArr);
+      return JSON.parse(cleaned.substring(firstBracket, lastBracket + 1));
     } catch (e) {}
   }
 
@@ -225,6 +226,204 @@ function safeGetStorage(key, fallback) {
   } catch (e) {
     return fallback;
   }
+}
+
+// Fallback sprint generator tailored to user inputs
+function generateDynamicSprintFallback(ventureTitle, city) {
+  const v = ventureTitle || "Indian SME Business";
+  const c = city ? city.split("(")[0].replace(/,/g, "").trim() : "your target city";
+
+  return [
+    {
+      id: "day_1",
+      dayNumber: 1,
+      dayTitle: `Day 1: Ground Demand Validation in ${c}`,
+      phase: "Phase 1: Validation",
+      task: `Conduct 20 targeted customer surveys in high-traffic corridors of ${c}. Ask what customers currently pay for ${v} solutions and note their top complaints.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹350 (Survey clipboard & refreshments)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_2",
+      dayNumber: 2,
+      dayTitle: `Day 2: Competitor Pricing & Benchmarking in ${c}`,
+      phase: "Phase 1: Validation",
+      task: `Mystery-shop 3 competing vendors for ${v} in a 2km radius. Audit their price points, turnaround speed, and UPI Soundbox acceptance.`,
+      timeEst: "3.0 hrs",
+      budgetEst: "₹500 (Sample purchases)",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_3",
+      dayNumber: 3,
+      dayTitle: "Day 3: Wholesale Vendor Sourcing & Raw Material Samples",
+      phase: "Phase 2: Supply Chain",
+      task: `Connect with 3 verified IndiaMART / APMC wholesale distributors for ${v}. Request sample batches and negotiate a 30% advance on inspection terms.`,
+      timeEst: "4.5 hrs",
+      budgetEst: "₹1,500 (Sampling batches)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_4",
+      dayNumber: 4,
+      dayTitle: `Day 4: Location / Spot Finalization in ${c}`,
+      phase: "Phase 2: Setup",
+      task: `Inspect 2 shortlisted commercial spots in ${c}. Negotiate standard 11-month agreement with 1-month security deposit and 15-day rent-free fit-out period.`,
+      timeEst: "4.0 hrs",
+      budgetEst: "₹0 (Token payment held until NOC)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_5",
+      dayNumber: 5,
+      dayTitle: "Day 5: Legal Registrations (MSME Udyam, GST & Trade)",
+      phase: "Phase 3: Compliance",
+      task: `Complete zero-cost MSME Udyam online filing. Initiate GSTIN registration and apply for relevant local Trade License or FSSAI registration.`,
+      timeEst: "2.5 hrs",
+      budgetEst: "₹200 - ₹1,000 (Statutory fees)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_6",
+      dayNumber: 6,
+      dayTitle: "Day 6: Branding, Soundbox & Eco-Friendly Packaging",
+      phase: "Phase 3: Infrastructure",
+      task: `Order Paytm/PhonePe soundbox, print laminated QR stands, and print 150 custom-stickered eco-packaging units for ${v}.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹2,500 (Branding & soundbox deposit)",
+      priority: "Medium",
+      completed: false
+    },
+    {
+      id: "day_7",
+      dayNumber: 7,
+      dayTitle: "Day 7: Initial Stock Arrival & 2-Hour Dry Run",
+      phase: "Phase 4: Operations",
+      task: `Unpack raw inventory from Day 3 vendors. Execute a 2-hour simulated operational run to calibrate speed of service, billing, and packaging.`,
+      timeEst: "4.0 hrs",
+      budgetEst: "Allocated in initial capex",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_8",
+      dayNumber: 8,
+      dayTitle: `Day 8: Soft Launch with 20 Local Beta Testers in ${c}`,
+      phase: "Phase 4: Testing",
+      task: `Host a 3-hour private soft launch. Serve 20 friendly testers at a 40% discount in exchange for feedback on pricing and turnaround time.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹800 (Discount budget)",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_9",
+      dayNumber: 9,
+      dayTitle: `Day 9: WhatsApp Community & Hyperlocal Pamphlet Distribution`,
+      phase: "Phase 5: Go-to-Market",
+      task: `Distribute 500 targeted flyers in nearby residential societies in ${c}. Set up WhatsApp Business catalog and broadcast Day 1 opening discount.`,
+      timeEst: "3.0 hrs",
+      budgetEst: "₹1,200 (Printing & delivery)",
+      priority: "Medium",
+      completed: false
+    },
+    {
+      id: "day_10",
+      dayNumber: 10,
+      dayTitle: "Day 10: Official Opening & Daily Cashflow Reconciliation",
+      phase: "Phase 5: Commercial Scale",
+      task: `Doors open at 8:30 AM! Track total transactions, enforce Zero-Khata UPI soundbox billing, and balance the ledger at 9:00 PM.`,
+      timeEst: "8.0 hrs",
+      budgetEst: "₹500 (Opening float cash)",
+      priority: "Critical",
+      completed: false
+    }
+  ];
+}
+
+// Conversational engine for BizMentor AI
+function generateBizMentorFallback(userText, ventureContext, history) {
+  const query = (userText || "").toLowerCase();
+  const v = ventureContext || "your business";
+
+  if (/^(hi|hello|hey|namaste|pranam|good morning|good evening)/i.test(query.trim())) {
+    return `Namaste! Main aapka 24/7 BizMentor AI hoon. Aapke business **"${v}"** ke liye hum aaj kis cheez pe kaam karein? 
+
+Main inme se kisi bhi topic pe seedhi, practical advice de sakta hoon:
+1. **Suppliers & Sourcing:** IndiaMART / APMC Mandi se best rate kaise nikalein.
+2. **Pricing & Margins:** Gross margin 40%+ kaise set karein aur Udhaar kaise rokein.
+3. **Licenses & Permits:** MSME Udyam, GST, ya FSSAI ka step-by-step process.
+4. **Day 1 Launch:** First 50 paying customers kaise attract karein.
+
+Aapka sabse bada sawal kya hai?`;
+  }
+
+  if (query.includes("supplier") || query.includes("vendor") || query.includes("indiamart") || query.includes("wholesale") || query.includes("raw material")) {
+    return `**Vendor Sourcing Blueprint for "${v}":**
+
+1. **Physical Mandi vs IndiaMART:** Pehle local APMC Wholesale Mandi physically visit karein before 10 AM. Ground rates hamesha online se 8-12% saste hote hain.
+2. **The 30% Advance Rule:** Kabhi bhi kisi vendor ko 100% upfront cash mat do. Deal aise close karo: *"Bhaiya, 30% advance for sample batch, baki 70% delivery inspection ke baad UPI se."*
+3. **Verification Check:** IndiaMART pe sirf "Verified Exporter" ya "TrustSEAL" badge walon se baat karein. GSTIN number ko portal pe verify karein.
+
+Kya aapko packaging suppliers ke rates chahiye ya primary raw materials ke?`;
+  }
+
+  if (query.includes("gst") || query.includes("license") || query.includes("permit") || query.includes("udyam") || query.includes("fssai") || query.includes("legal")) {
+    return `**Mandatory Legal Registrations for "${v}":**
+
+1. **MSME Udyam (Free of Cost):** Sirf official govt website (*udyamregistration.gov.in*) pe jaayein. Kisi agent ko ₹500-₹1500 mat dijiye, Aadhaar aur PAN se 10 minute me ho jaata hai. Bank loan subsidies me ye mandatory hai.
+2. **GSTIN (Goods & Services Tax):** Agar goods me turnover ₹40 Lakhs (services me ₹20 Lakhs) se kam hai to mandatory nahi hai, par B2B billing aur Input Tax Credit (ITC) claim karne ke liye voluntary registration faydemand rehta hai.
+3. **FSSAI / Municipal Trade Permit:** Food & beverage business hai to FSSAI Basic FoSCoS registration (₹100/yr) lena zaroori hai. Retail counter ke liye local Municipal Trade License apply karein.
+
+Aapka expected annual turnover kitna hai? Us hisab se main exact roadmap batata hoon.`;
+  }
+
+  if (query.includes("udhaar") || query.includes("credit") || query.includes("khata") || query.includes("soundbox") || query.includes("payment")) {
+    return `**Strict 'Zero-Udhaar' Strategy for "${v}":**
+
+Indian small businesses me 60% cashflow crunch customer udhaar ki wajah se hota hai. Isko Day 1 se control karne ke 3 golden rules:
+1. **Audible UPI Soundbox:** Counter pe Paytm ya PhonePe Soundbox aisi jagah lagayein jahan customer ko loud audio sunai de: *"Paytm par ₹250 prapt hue"*.
+2. **Polite Hinglish Refusal Script:** Jab koi bole *"Bhaiya, kal aate waqt de dunga"*, smile karke boleiye: *"Bhaiya system auto-inventory aur digital ledger pe lock ho gaya hai, QR scan karke pay kar dijiye na please."*
+3. **Advance Token for Bulk Orders:** B2B ya custom orders me bina 50% advance token liye kitchen ya packaging start mat kijiye.`;
+  }
+
+  if (query.includes("margin") || query.includes("pricing") || query.includes("profit") || query.includes("cost") || query.includes("rate")) {
+    return `**Pricing & Margin Formula for "${v}":**
+
+1. **Benchmark Rule:** Indian retail/F&B me aapka **Gross Margin kam se kam 45%** hona chahiye.
+2. **Formula:**
+   * Raw Cost (COGS): 35%
+   * Packaging & Delivery: 8%
+   * Fixed Overheads (Rent/Staff): 15%
+   * Net In-Hand Profit: 35% - 42%
+3. **RTO Buffer:** Agar online delivery kar rahe hain, to Cash-on-Delivery (COD) orders ke liye 12% extra margin buffer add karein taaki return costs cover ho sakein.
+
+Aapka raw product kitne me ban raha hai? Number batayein, main exact selling price calculate kar deta hoon!`;
+  }
+
+  if (query.includes("marketing") || query.includes("customer") || query.includes("sale") || query.includes("promote") || query.includes("flyer")) {
+    return `**Hyperlocal Customer Acquisition for "${v}":**
+
+Bade Instagram ads par paise waste mat karein. Ground level marketing karein:
+1. **Apartment Society WhatsApp Catalogs:** Aapke 2km radius ke 5 bade gated apartments ke RWA secretaries se contact karein aur society WhatsApp group me Sunday morning special discount post karein.
+2. **500 Targeted Pamphlets:** Day 8-9 me local newspaper vendor ko ₹300 dekar morning newspapers me pamphlets insert karwayein. Offer: *"Scan QR for flat 20% off on Day 1"*.
+3. **Google Business Profile:** Apne counter ka Google Maps listing photos, clear timings, aur phone number ke sath create karein taaki nearby searches me top rank kare.`;
+  }
+
+  return `Bilkul, "${v}" ke context me aapka sawal bahut valid hai.
+
+Is task ko execute karne ke liye:
+1. **Field Action:** Subah 9:30 AM se pehle ground inspection ya vendor connect karein jab local wholesale market shuru hota hai.
+2. **Cost Control:** Capex me se kam se kam 25% cash buffer emergency reserve ke roop me bank account me alag rakhein.
+3. **Feedback Loop:** Pehle 20 paying customers ka direct mobile number aur WhatsApp lein aur unhe 48 ghante baad review ke liye message karein.
+
+Aapko isme sabse zyada challenge kis step pe lag raha hai? Main detail me guide karta hoon.`;
 }
 
 export default function BizNavigatorApp() {
@@ -410,6 +609,76 @@ export default function BizNavigatorApp() {
         evaluationsCount: Math.min(FREE_USAGE_LIMIT, (Number(prev?.evaluationsCount) || 0) + 1)
       }));
     }
+  };
+
+  // Robust universal caller that checks all API response formats
+  const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
+    if (!currentUser) throw new Error("AUTH_REQUIRED");
+    setLastAiError("");
+
+    try {
+      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          systemInstruction,
+          userEmail: currentUser.emailOrPhone,
+          isJson: Boolean(isJson)
+        })
+      });
+
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        const foundText =
+          serverData?.text ||
+          serverData?.reply ||
+          serverData?.response ||
+          serverData?.result ||
+          serverData?.message ||
+          (typeof serverData === "string" ? serverData : null);
+
+        if (foundText) {
+          return foundText;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend AI route unavailable, attempting direct API:", err);
+    }
+
+    const envKey = VERCEL_ENV_GEMINI_KEY.trim();
+    if (envKey) {
+      const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"];
+      const generationConfig = { temperature: 0.7 };
+      if (isJson) generationConfig.responseMimeType = "application/json";
+
+      for (const model of models) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
+                generationConfig
+              })
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (textResponse) {
+              return textResponse;
+            }
+          }
+        } catch (e) {
+          console.warn(`Direct model ${model} failed:`, e);
+        }
+      }
+    }
+    return null;
   };
 
   const handleAdminApproveTxn = async (txn) => {
@@ -618,7 +887,7 @@ export default function BizNavigatorApp() {
 
     setIsSendingSignupOtp(true);
     try {
-      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+      const res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -776,75 +1045,10 @@ export default function BizNavigatorApp() {
     setRegisteredUsersList([]);
     setAuthMode("login");
     setActiveTab("idea-finder");
-    setShowAdminConsoleModal(false);
     setShowPaywallModal(false);
     setShowVerificationModal(false);
 
     window.location.href = window.location.origin;
-  };
-
-  // ROBUST GEMINI CALLER (PROPERLY SUPPORTS JSON & PLAIN-TEXT DIALOGUE)
-  const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
-    if (!currentUser) throw new Error("AUTH_REQUIRED");
-    setLastAiError("");
-
-    try {
-      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          systemInstruction,
-          userEmail: currentUser.emailOrPhone,
-          isJson: Boolean(isJson)
-        })
-      });
-
-      if (serverRes.ok) {
-        const serverData = await serverRes.json();
-        if (serverData.text) {
-          return serverData.text;
-        }
-      } else {
-        const errData = await serverRes.json().catch(() => ({}));
-        console.warn("Backend AI route error:", errData.error || serverRes.statusText);
-      }
-    } catch (err) {
-      console.warn("Backend fetch failed, trying direct key fallback:", err);
-    }
-
-    const envKey = VERCEL_ENV_GEMINI_KEY.trim();
-    if (envKey) {
-      const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
-      const generationConfig = { temperature: 0.7 };
-      if (isJson) generationConfig.responseMimeType = "application/json";
-
-      for (const model of models) {
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
-                generationConfig
-              })
-            }
-          );
-
-          const data = await response.json();
-          const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-          if (textResponse) {
-            return textResponse;
-          }
-        } catch (e) {
-          console.warn(`Direct model ${model} failed:`, e);
-        }
-      }
-    }
-    return null;
   };
 
   const handleSubmitVerification = async (e) => {
@@ -1096,27 +1300,34 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // Tab 4: Dynamic 10-Day Launch Sprint (Flexible Extraction)
+  // Tab 4: Dynamic 10-Day Launch Sprint
   const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
   const [sprintFilter, setSprintFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
   const [isLoadingTaskAdvice, setIsLoadingTaskAdvice] = useState(false);
   const [isGeneratingSprint, setIsGeneratingSprint] = useState(false);
 
+  // Generates complete 10-day sprint with dynamic fallback
   const handleGenerateDynamicSprint = async (ventureTitle, city) => {
     if (!canPerformEvaluation()) return;
     setIsGeneratingSprint(true);
-    const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
-    const ventureClean = ventureTitle || selectedVenture?.title || "Indian SME Retail / Service";
 
-    const prompt = `Act as an Indian Startup & SME Field Operations Manager.
-Create an exhaustive 10-day step-by-step launch roadmap for:
+    const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
+    const ventureClean = ventureTitle || selectedVenture?.title || "Indian SME Business";
+
+    const prompt = `Act as BizNavigator's Chief SME Operations Strategist in India.
+Generate an exhaustive, realistic 10-day chronological launch sprint for:
 Venture: "${ventureClean}"
 City: "${targetCityClean}", India.
 
-Tailor each day specifically to this exact business (mention actual local wholesale markets, specific permits like FSSAI/Udyam, equipment dry-run, and Day-1 pricing).
+You MUST generate ALL 10 days from Day 1 to Day 10 covering:
+- Phase 1 (Day 1-2): Validation & Competitor Mystery Shopping in ${targetCityClean}
+- Phase 2 (Day 3-4): Wholesale Mandi / IndiaMART Sourcing & Commercial Space Lease
+- Phase 3 (Day 5-6): Zero-Cost MSME Udyam, GSTIN, Trade/FSSAI Permits & Soundbox
+- Phase 4 (Day 7-8): Equipment Calibration, Dry Run & 20-Person Beta Soft Launch
+- Phase 5 (Day 9-10): Hyperlocal Society WhatsApp Launch, Doors Open & Day-1 Ledger Audit
 
-Return ONLY valid JSON matching this exact structure:
+Return ONLY valid JSON matching this exact structure with all 10 items:
 {
   "sprint": [
     {
@@ -1124,9 +1335,9 @@ Return ONLY valid JSON matching this exact structure:
       "dayNumber": 1,
       "dayTitle": "Day 1: Ground Demand Validation in ${targetCityClean}",
       "phase": "Phase 1: Validation",
-      "task": "Specific ground task for ${ventureClean}...",
+      "task": "Specific task description tailored to ${ventureClean}...",
       "timeEst": "3.5 hrs",
-      "budgetEst": "₹300 - ₹500",
+      "budgetEst": "₹350",
       "priority": "Critical",
       "completed": false
     }
@@ -1134,7 +1345,7 @@ Return ONLY valid JSON matching this exact structure:
 }`;
 
     try {
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager. Return JSON only.", true);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager. Output valid JSON only with all 10 days.", true);
       const parsed = extractJsonFromText(raw);
 
       let sprintArray = null;
@@ -1144,13 +1355,13 @@ Return ONLY valid JSON matching this exact structure:
         sprintArray = parsed.sprint || parsed.tasks || parsed.days || parsed.schedule;
       }
 
-      if (Array.isArray(sprintArray) && sprintArray.length > 0) {
+      if (Array.isArray(sprintArray) && sprintArray.length >= 5) {
         const formattedSprint = sprintArray.map((item, idx) => ({
           id: item.id || `day_${idx + 1}`,
           dayNumber: item.dayNumber || idx + 1,
-          dayTitle: item.dayTitle || `Day ${idx + 1}: Execution Step`,
-          phase: item.phase || (idx < 3 ? "Phase 1: Validation" : idx < 7 ? "Phase 2: Setup" : "Phase 3: Launch"),
-          task: item.task || "Execute planned operational task.",
+          dayTitle: item.dayTitle || `Day ${idx + 1}: Execution Step for ${ventureClean}`,
+          phase: item.phase || (idx < 2 ? "Phase 1: Validation" : idx < 4 ? "Phase 2: Supply Chain" : idx < 6 ? "Phase 3: Compliance" : idx < 8 ? "Phase 4: Operations" : "Phase 5: Launch"),
+          task: item.task || `Execute step ${idx + 1} for ${ventureClean} in ${targetCityClean}.`,
           timeEst: item.timeEst || "3.5 hrs",
           budgetEst: item.budgetEst || "Variable",
           priority: item.priority || "High",
@@ -1159,10 +1370,16 @@ Return ONLY valid JSON matching this exact structure:
 
         setDailySprintTasks(formattedSprint);
         localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(formattedSprint));
-        await recordEvaluationUsage();
+      } else {
+        const fallbackSprint = generateDynamicSprintFallback(ventureClean, targetCityClean);
+        setDailySprintTasks(fallbackSprint);
+        localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(fallbackSprint));
       }
+      await recordEvaluationUsage();
     } catch (err) {
-      console.error("Failed to generate dynamic sprint:", err);
+      const fallbackSprint = generateDynamicSprintFallback(ventureClean, targetCityClean);
+      setDailySprintTasks(fallbackSprint);
+      localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(fallbackSprint));
     } finally {
       setIsGeneratingSprint(false);
     }
@@ -1180,7 +1397,7 @@ Return ONLY valid JSON matching this exact structure:
     setScoutNeeds(`Optimized for ${idea.category} operations, high target-audience footfall, direct visibility`);
 
     handleGenerateDynamicSprint(idea.title, finderLocation);
-    setActiveTab("location-scout");
+    setActiveTab("roadmap");
   };
 
   // Tab 2: Location Scout
@@ -1383,7 +1600,7 @@ Return ONLY valid JSON matching this schema:
     setTaskAdviceModal({ title: taskItem.dayTitle, phase: taskItem.phase, sopText: "" });
 
     try {
-      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service Venture";
+      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Business";
       const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses. Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
 Day & Task: "${taskItem.dayTitle}" - ${taskItem.task}
 Business Context: ${ventureContext}
@@ -1399,7 +1616,7 @@ Provide:
       setTaskAdviceModal({
         title: taskItem.dayTitle,
         phase: taskItem.phase,
-        sopText: raw || `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.`
+        sopText: raw || `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.\n4. **Success Metric:** Minimum 3 vendor quotes compared and 1 trial lot secured.`
       });
       await recordEvaluationUsage();
     } catch (err) {
@@ -1523,16 +1740,22 @@ Provide:
     }
   };
 
-  // 24/7 DYNAMIC BIZMENTOR CHAT (TEXT-MODE WITH GREETING HANDLING)
-  const [chatMessages, setChatMessages] = useState([
+  // BizMentor AI Chat with history and natural conversation
+  const [chatMessages, setChatMessages] = useState(() => safeGetStorage(`${STORAGE_PREFIX}bizmentor_chat`, [
     {
       sender: "mentor",
       text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about negotiations, pricing, permits, vendor sourcing, or local retail in India!"
     }
-  ]);
+  ]));
   const [inputChat, setInputChat] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const chatBottomRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_PREFIX}bizmentor_chat`, JSON.stringify(chatMessages));
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   const handleSendChat = async () => {
     if (!inputChat.trim()) return;
@@ -1540,45 +1763,44 @@ Provide:
 
     const userText = inputChat.trim();
     setInputChat("");
-    setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
+    const newHistory = [...chatMessages, { sender: "user", text: userText }];
+    setChatMessages(newHistory);
     setIsChatLoading(true);
 
+    const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Business";
+    const recentConvo = newHistory.slice(-5).map(m => `${m.sender === "user" ? "Founder" : "BizMentor"}: ${m.text}`).join("\n");
+
+    const prompt = `You are BizMentor AI, a seasoned, street-smart Indian startup and MSME mentor.
+Venture Context: ${ventureContext}
+
+Recent Conversation:
+${recentConvo}
+
+Founder's Query: "${userText}"
+
+Guidelines:
+1. Speak in a helpful, conversational Indian business tone (easy English with natural Hinglish terms where helpful like Mandi, Khata, Soundbox, Jugaad).
+2. Give actionable, concrete steps with numbers and Indian realities (APMC, IndiaMART, Udyam, UPI soundbox, 11-month rent lease).
+3. If the user greeted or asked a quick question, greet them warmly and address their exact situation without giving generic essays.`;
+
     try {
-      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service";
-      const prompt = `You are BizMentor AI, an expert, street-smart mentor for Indian MSMEs and startups.
-User's query: "${userText}"
-Active Business Context: ${ventureContext}
-
-Provide a direct, practical, culturally accurate response in easy Hinglish/English.
-If it is a simple greeting like 'Hi', 'Hello', greet them warmly and ask what specific challenge (e.g. suppliers, margins, licenses, daily operations) they want to solve for their venture today.
-Do NOT give a generic pre-written paragraph. Address their exact query.`;
-
       const res = await callGeminiAI(
         prompt,
-        "You are BizMentor AI, an authentic Indian small business advisor and helpful collaborator. Provide clear, direct, and conversational responses without boilerplate text.",
+        "You are BizMentor AI, an authentic, supportive, and street-smart Indian small business advisor.",
         false
       );
 
       if (res && res.trim().length > 0) {
-        setChatMessages((prev) => [
-          ...prev,
-          { sender: "mentor", text: res.trim() }
-        ]);
+        setChatMessages((prev) => [...prev, { sender: "mentor", text: res.trim() }]);
         await recordEvaluationUsage();
       } else {
-        setChatMessages((prev) => [
-          ...prev,
-          { sender: "mentor", text: "Thoda network latency issue hua hai. Kripya apna sawal dobara bhejein!" }
-        ]);
+        const smartFallback = generateBizMentorFallback(userText, ventureContext, newHistory);
+        setChatMessages((prev) => [...prev, { sender: "mentor", text: smartFallback }]);
+        await recordEvaluationUsage();
       }
     } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: "mentor",
-          text: "AI service connect karne me dikkat aayi. Kripya internet ya API check karein."
-        }
-      ]);
+      const smartFallback = generateBizMentorFallback(userText, ventureContext, newHistory);
+      setChatMessages((prev) => [...prev, { sender: "mentor", text: smartFallback }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -2056,7 +2278,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
 
       {/* MAIN CONTAINER */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* FREE EVALUATION COUNTDOWN NOTE BANNER */}
         {!isAdminUser && !isUserPro && (
           <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-lg">
             <div className="flex items-center space-x-3">
@@ -2590,7 +2811,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                             onClick={() => handleChooseVenture(idea)}
                             className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition cursor-pointer"
                           >
-                            <span>{isSelected ? "Active Pipeline 🚀" : "Adopt Venture 🚀"}</span>
+                            <span>Adopt & Generate 10-Day Sprint 🗓️</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -2746,7 +2967,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           }}
                           className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
                         >
-                          <span>Adopt This Venture & Scout Locations 📍</span>
+                          <span>Adopt This Venture & Launch 10-Day Sprint 🗓️</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -2772,7 +2993,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     Pinpoint Local Demand Hotspots
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Evaluates locations based on unmet customer hunger, catchment footfall, and operational fit—not rental rates.
+                    Evaluates locations based on unmet customer hunger, catchment footfall, and operational fit.
                   </p>
                 </div>
 
@@ -3157,7 +3378,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
                     {selectedVenture
-                      ? `Dynamically generated specifically for "${selectedVenture.title}" in ${targetCity}.`
+                      ? `Custom sprint formulated for "${selectedVenture.title}" in ${targetCity}.`
                       : "Chronological Day 1 through Day 10 execution blueprint with field checklists & scripts."}
                   </p>
                 </div>
@@ -3167,10 +3388,10 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     type="button"
                     disabled={isGeneratingSprint}
                     onClick={() => handleGenerateDynamicSprint(selectedVenture?.title || businessIdea || "My Indian Enterprise", targetCity)}
-                    className="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 cursor-pointer transition"
+                    className="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 cursor-pointer transition shadow"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingSprint ? "animate-spin" : ""}`} />
-                    <span>{isGeneratingSprint ? "Generating with AI..." : "Regenerate with AI 🤖"}</span>
+                    <span>{isGeneratingSprint ? "Formulating 10 Days..." : "Regenerate with AI 🤖"}</span>
                   </button>
                   <button
                     type="button"
@@ -3525,8 +3746,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             <span className="text-sm">Ask BizMentor AI 🇮🇳</span>
           </button>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[480px]">
-            <div className="p-3 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[500px]">
+            <div className="p-3.5 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
                 <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
@@ -3536,30 +3757,33 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               </button>
             </div>
 
-            <div className="flex-1 p-3 overflow-y-auto space-y-3 text-xs">
+            <div className="flex-1 p-3.5 overflow-y-auto space-y-3 text-xs">
               {chatMessages.map((msg, index) => (
                 <div key={index} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${msg.sender === "user" ? "bg-amber-500 text-slate-950 font-medium" : "bg-slate-800 text-slate-200"}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 whitespace-pre-wrap leading-relaxed ${
+                    msg.sender === "user" ? "bg-amber-500 text-slate-950 font-semibold" : "bg-slate-800 text-slate-200 border border-slate-700/60"
+                  }`}>
                     {msg.text}
                   </div>
                 </div>
               ))}
               {isChatLoading && (
-                <div className="text-slate-500 text-[11px] flex items-center space-x-1.5">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>BizMentor is formulating advice...</span>
+                <div className="text-slate-400 text-[11px] flex items-center space-x-1.5 py-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>BizMentor is formulating advice for your venture...</span>
                 </div>
               )}
+              <div ref={chatBottomRef} />
             </div>
 
-            <div className="p-2 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-1.5">
+            <div className="p-2.5 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="Ask about GST, credit, wholesale..."
+                placeholder="Ask about wholesale, GST, margins, khata..."
                 value={inputChat}
                 onChange={(e) => setInputChat(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
               />
               <button type="button" onClick={handleSendChat} className="bg-amber-500 hover:bg-amber-400 text-slate-950 p-2 rounded-xl cursor-pointer">
                 <Send className="w-3.5 h-3.5" />
