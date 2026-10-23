@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   Briefcase,
   TrendingUp,
@@ -67,7 +66,6 @@ const API_BASE_URL =
 const FREE_USAGE_LIMIT = 5;
 const STORAGE_PREFIX = "biznavigator_";
 const ADMIN_EMAIL = "admin@biznavigator.in";
-
 const VERCEL_ENV_GEMINI_KEY =
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_GEMINI_API_KEY) ||
   (typeof process !== "undefined" &&
@@ -197,28 +195,24 @@ const INITIAL_10_DAY_SPRINT = [
 
 function extractJsonFromText(rawText) {
   if (!rawText) return null;
+  const cleaned = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
   try {
-    return JSON.parse(rawText.trim());
+    return JSON.parse(cleaned);
   } catch (e) {}
-
-  const firstBrace = rawText.indexOf("{");
-  const lastBrace = rawText.lastIndexOf("}");
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-    const candidate = rawText.substring(firstBrace, lastBrace + 1);
     try {
-      return JSON.parse(candidate);
+      return JSON.parse(cleaned.substring(firstBrace, lastBrace + 1));
     } catch (e) {}
   }
-
-  const firstBracket = rawText.indexOf("[");
-  const lastBracket = rawText.lastIndexOf("]");
+  const firstBracket = cleaned.indexOf("[");
+  const lastBracket = cleaned.lastIndexOf("]");
   if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
-    const candidateArr = rawText.substring(firstBracket, lastBracket + 1);
     try {
-      return JSON.parse(candidateArr);
+      return JSON.parse(cleaned.substring(firstBracket, lastBracket + 1));
     } catch (e) {}
   }
-
   return null;
 }
 
@@ -229,6 +223,232 @@ function safeGetStorage(key, fallback) {
   } catch (e) {
     return fallback;
   }
+}
+
+function generateDynamicSprintFallback(ventureTitle, city) {
+  const v = ventureTitle || "Indian SME Business";
+  const c = city ? city.split("(")[0].replace(/,/g, "").trim() : "your target city";
+  return [
+    {
+      id: "day_1",
+      dayNumber: 1,
+      dayTitle: `Day 1: Ground Demand Validation in ${c}`,
+      phase: "Phase 1: Validation",
+      task: `Conduct 20 targeted customer surveys in high-traffic corridors of ${c}. Ask what customers currently pay for ${v} solutions and note their top complaints.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹350 (Survey clipboard & refreshments)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_2",
+      dayNumber: 2,
+      dayTitle: `Day 2: Competitor Pricing & Benchmarking in ${c}`,
+      phase: "Phase 1: Validation",
+      task: `Mystery-shop 3 competing vendors for ${v} in a 2km radius. Audit their price points, turnaround speed, and UPI Soundbox acceptance.`,
+      timeEst: "3.0 hrs",
+      budgetEst: "₹500 (Sample purchases)",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_3",
+      dayNumber: 3,
+      dayTitle: "Day 3: Wholesale Vendor Sourcing & Raw Material Samples",
+      phase: "Phase 2: Supply Chain",
+      task: `Connect with 3 verified IndiaMART / APMC wholesale distributors for ${v}. Request sample batches and negotiate a 30% advance on inspection terms.`,
+      timeEst: "4.5 hrs",
+      budgetEst: "₹1,500 (Sampling batches)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_4",
+      dayNumber: 4,
+      dayTitle: `Day 4: Location / Spot Finalization in ${c}`,
+      phase: "Phase 2: Setup",
+      task: `Inspect 2 shortlisted commercial spots in ${c}. Negotiate standard 11-month agreement with 1-month security deposit and 15-day rent-free fit-out period.`,
+      timeEst: "4.0 hrs",
+      budgetEst: "₹0 (Token payment held until NOC)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_5",
+      dayNumber: 5,
+      dayTitle: "Day 5: Legal Registrations (MSME Udyam, GST & Trade)",
+      phase: "Phase 3: Compliance",
+      task: `Complete zero-cost MSME Udyam online filing. Initiate GSTIN registration and apply for relevant local Trade License or FSSAI registration.`,
+      timeEst: "2.5 hrs",
+      budgetEst: "₹200 - ₹1,000 (Statutory fees)",
+      priority: "Critical",
+      completed: false
+    },
+    {
+      id: "day_6",
+      dayNumber: 6,
+      dayTitle: "Day 6: Branding, Soundbox & Eco-Friendly Packaging",
+      phase: "Phase 3: Infrastructure",
+      task: `Order Paytm/PhonePe soundbox, print laminated QR stands, and print 150 custom-stickered eco-packaging units for ${v}.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹2,500 (Branding & soundbox deposit)",
+      priority: "Medium",
+      completed: false
+    },
+    {
+      id: "day_7",
+      dayNumber: 7,
+      dayTitle: "Day 7: Initial Stock Arrival & 2-Hour Dry Run",
+      phase: "Phase 4: Operations",
+      task: `Unpack raw inventory from Day 3 vendors. Execute a 2-hour simulated operational run to calibrate speed of service, billing, and packaging.`,
+      timeEst: "4.0 hrs",
+      budgetEst: "Allocated in initial capex",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_8",
+      dayNumber: 8,
+      dayTitle: `Day 8: Soft Launch with 20 Local Beta Testers in ${c}`,
+      phase: "Phase 4: Testing",
+      task: `Host a 3-hour private soft launch. Serve 20 friendly testers at a 40% discount in exchange for feedback on pricing and turnaround time.`,
+      timeEst: "3.5 hrs",
+      budgetEst: "₹800 (Discount budget)",
+      priority: "High",
+      completed: false
+    },
+    {
+      id: "day_9",
+      dayNumber: 9,
+      dayTitle: `Day 9: WhatsApp Community & Hyperlocal Pamphlet Distribution`,
+      phase: "Phase 5: Go-to-Market",
+      task: `Distribute 500 targeted flyers in nearby residential societies in ${c}. Set up WhatsApp Business catalog and broadcast Day 1 opening discount.`,
+      timeEst: "3.0 hrs",
+      budgetEst: "₹1,200 (Printing & delivery)",
+      priority: "Medium",
+      completed: false
+    },
+    {
+      id: "day_10",
+      dayNumber: 10,
+      dayTitle: "Day 10: Official Opening & Daily Cashflow Reconciliation",
+      phase: "Phase 5: Commercial Scale",
+      task: `Doors open at 8:30 AM! Track total transactions, enforce Zero-Khata UPI soundbox billing, and balance the ledger at 9:00 PM.`,
+      timeEst: "8.0 hrs",
+      budgetEst: "₹500 (Opening float cash)",
+      priority: "Critical",
+      completed: false
+    }
+  ];
+}
+
+function generateBizMentorFallback(userText, ventureContext, history) {
+  const query = (userText || "").toLowerCase();
+  const v = ventureContext || "your business";
+
+  if (/^(hi|hello|hey|namaste|pranam|good morning|good evening)/i.test(query.trim())) {
+    return `Namaste! Main aapka 24/7 BizMentor AI hoon. Aapke business **"${v}"** ke liye hum aaj kis cheez pe kaam karein? Main inme se kisi bhi topic pe seedhi, practical advice de sakta hoon:
+
+1. **Suppliers & Sourcing:** IndiaMART / APMC Mandi se best rate kaise nikalein.
+2. **Pricing & Margins:** Gross margin 40%+ kaise set karein aur Udhaar kaise rokein.
+3. **Licenses & Permits:** MSME Udyam, GST, ya FSSAI ka step-by-step process.
+4. **Day 1 Launch:** First 50 paying customers kaise attract karein.
+
+Aapka sabse bada sawal kya hai?`;
+  }
+
+  if (
+    query.includes("supplier") ||
+    query.includes("vendor") ||
+    query.includes("indiamart") ||
+    query.includes("wholesale") ||
+    query.includes("raw material")
+  ) {
+    return `**Vendor Sourcing Blueprint for "${v}":**
+
+1. **Physical Mandi vs IndiaMART:** Pehle local APMC Wholesale Mandi physically visit karein before 10 AM. Ground rates hamesha online se 8-12% saste hote hain.
+2. **The 30% Advance Rule:** Kabhi bhi kisi vendor ko 100% upfront cash mat do. Deal aise close karo: *"Bhaiya, 30% advance for sample batch, baki 70% delivery inspection ke baad UPI se."*
+3. **Verification Check:** IndiaMART pe sirf "Verified Exporter" ya "TrustSEAL" badge walon se baat karein. GSTIN number ko portal pe verify karein.
+
+Kya aapko packaging suppliers ke rates chahiye ya primary raw materials ke?`;
+  }
+
+  if (
+    query.includes("gst") ||
+    query.includes("license") ||
+    query.includes("permit") ||
+    query.includes("udyam") ||
+    query.includes("fssai") ||
+    query.includes("legal")
+  ) {
+    return `**Mandatory Legal Registrations for "${v}":**
+
+1. **MSME Udyam (Free of Cost):** Sirf official govt website (*udyamregistration.gov.in*) pe jaayein. Kisi agent ko ₹500-₹1500 mat dijiye, Aadhaar aur PAN se 10 minute me ho jaata hai. Bank loan subsidies me ye mandatory hai.
+2. **GSTIN (Goods & Services Tax):** Agar goods me turnover ₹40 Lakhs (services me ₹20 Lakhs) se kam hai to mandatory nahi hai, par B2B billing aur Input Tax Credit (ITC) claim karne ke liye voluntary registration faydemand rehta hai.
+3. **FSSAI / Municipal Trade Permit:** Food & beverage business hai to FSSAI Basic FoSCoS registration (₹100/yr) lena zaroori hai. Retail counter ke liye local Municipal Trade License apply karein.
+
+Aapka expected annual turnover kitna hai? Us hisab se main exact roadmap batata hoon.`;
+  }
+
+  if (
+    query.includes("udhaar") ||
+    query.includes("credit") ||
+    query.includes("khata") ||
+    query.includes("soundbox") ||
+    query.includes("payment")
+  ) {
+    return `**Strict 'Zero-Udhaar' Strategy for "${v}":**
+
+Indian small businesses me 60% cashflow crunch customer udhaar ki wajah se hota hai. Isko Day 1 se control karne ke 3 golden rules:
+
+1. **Audible UPI Soundbox:** Counter pe Paytm ya PhonePe Soundbox aisi jagah lagayein jahan customer ko loud audio sunai de: *"Paytm par ₹250 prapt hue"*.
+2. **Polite Hinglish Refusal Script:** Jab koi bole *"Bhaiya, kal aate waqt de dunga"*, smile karke boleiye: *"Bhaiya system auto-inventory aur digital ledger pe lock ho gaya hai, QR scan karke pay kar dijiye na please."*
+3. **Advance Token for Bulk Orders:** B2B ya custom orders me bina 50% advance token liye kitchen ya packaging start mat kijiye.`;
+  }
+
+  if (
+    query.includes("margin") ||
+    query.includes("pricing") ||
+    query.includes("profit") ||
+    query.includes("cost") ||
+    query.includes("rate")
+  ) {
+    return `**Pricing & Margin Formula for "${v}":**
+
+1. **Benchmark Rule:** Indian retail/F&B me aapka **Gross Margin kam se kam 45%** hona chahiye.
+2. **Formula:**
+   * Raw Cost (COGS): 35%
+   * Packaging & Delivery: 8%
+   * Fixed Overheads (Rent/Staff): 15%
+   * Net In-Hand Profit: 35% - 42%
+3. **RTO Buffer:** Agar online delivery kar rahe hain, to Cash-on-Delivery (COD) orders ke liye 12% extra margin buffer add karein taaki return costs cover ho sakein.
+
+Aapka raw product kitne me ban raha hai? Number batayein, main exact selling price calculate kar deta hoon!`;
+  }
+
+  if (
+    query.includes("marketing") ||
+    query.includes("customer") ||
+    query.includes("sale") ||
+    query.includes("promote") ||
+    query.includes("flyer")
+  ) {
+    return `**Hyperlocal Customer Acquisition for "${v}":**
+
+Bade Instagram ads par paise waste mat karein. Ground level marketing karein:
+
+1. **Apartment Society WhatsApp Catalogs:** Aapke 2km radius ke 5 bade gated apartments ke RWA secretaries se contact karein aur society WhatsApp group me Sunday morning special discount post karein.
+2. **500 Targeted Pamphlets:** Day 8-9 me local newspaper vendor ko ₹300 dekar morning newspapers me pamphlets insert karwayein. Offer: *"Scan QR for flat 20% off on Day 1"*.
+3. **Google Business Profile:** Apne counter ka Google Maps listing photos, clear timings, aur phone number ke sath create karein taaki nearby searches me top rank kare.`;
+  }
+
+  return `Bilkul, "${v}" ke context me aapka sawal bahut valid hai. Is task ko execute karne ke liye:
+
+1. **Field Action:** Subah 9:30 AM se pehle ground inspection ya vendor connect karein jab local wholesale market shuru hota hai.
+2. **Cost Control:** Capex me se kam se kam 25% cash buffer emergency reserve ke roop me bank account me alag rakhein.
+3. **Feedback Loop:** Pehle 20 paying customers ka direct mobile number aur WhatsApp lein aur unhe 48 ghante baad review ke liye message karein.
+
+Aapko isme sabse zyada challenge kis step pe lag raha hai? Main detail me guide karta hoon.`;
 }
 
 export default function BizNavigatorApp() {
@@ -279,13 +499,12 @@ export default function BizNavigatorApp() {
 
   const [showPaywallModal, setShowPaywallModal] = useState(false);
   const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [showAdminConsoleModal, setShowAdminConsoleModal] = useState(false);
   const [selectedPlanForVerification, setSelectedPlanForVerification] = useState("Monthly Pro (₹249)");
   const [inputPaymentId, setInputPaymentId] = useState("");
   const [verificationError, setVerificationError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
-  const [legalModalType, setLegalModalType] = useState(null);
 
+  const [legalModalType, setLegalModalType] = useState(null);
   const [deepAnalysisIdea, setDeepAnalysisIdea] = useState(null);
   const [deepAnalysisData, setDeepAnalysisData] = useState(null);
   const [isLoadingDeepAnalysis, setIsLoadingDeepAnalysis] = useState(false);
@@ -296,10 +515,7 @@ export default function BizNavigatorApp() {
 
   const [activeTab, setActiveTab] = useState(() => {
     const user = safeGetStorage(`${STORAGE_PREFIX}user`, null);
-    if (
-      user?.role?.toLowerCase() === "admin" ||
-      user?.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-    ) {
+    if (user?.role?.toLowerCase() === "admin" || user?.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
       return "admin-works";
     }
     return "idea-finder";
@@ -430,6 +646,72 @@ export default function BizNavigatorApp() {
     }
   };
 
+  const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
+    if (!currentUser) throw new Error("AUTH_REQUIRED");
+    setLastAiError("");
+
+    try {
+      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          systemInstruction,
+          userEmail: currentUser.emailOrPhone,
+          isJson: Boolean(isJson)
+        })
+      });
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        const foundText =
+          serverData?.text ||
+          serverData?.reply ||
+          serverData?.response ||
+          serverData?.result ||
+          serverData?.message ||
+          (typeof serverData === "string" ? serverData : null);
+        if (foundText) {
+          return foundText;
+        }
+      }
+    } catch (err) {
+      console.warn("Backend AI route unavailable, attempting direct API:", err);
+    }
+
+    const envKey = VERCEL_ENV_GEMINI_KEY.trim();
+    if (envKey) {
+      const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"];
+      const generationConfig = { temperature: 0.7 };
+      if (isJson) generationConfig.responseMimeType = "application/json";
+
+      for (const model of models) {
+        try {
+          const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
+                generationConfig
+              })
+            }
+          );
+          if (response.ok) {
+            const data = await response.json();
+            const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (textResponse) {
+              return textResponse;
+            }
+          }
+        } catch (e) {
+          console.warn(`Direct model ${model} failed:`, e);
+        }
+      }
+    }
+    return null;
+  };
+
   const handleAdminApproveTxn = async (txn) => {
     const txnId = txn._id || txn.id;
     setIsExecutingAdminAction(true);
@@ -492,13 +774,14 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/admin/toggle-pro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone: userEmail, isProUser: !currentProStatus })
+        body: JSON.stringify({
+          emailOrPhone: userEmail,
+          isProUser: !currentProStatus
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update user in MongoDB.");
-      setAdminDbSuccess(
-        `MongoDB Updated: ${userEmail} Pro is now ${!currentProStatus ? "ACTIVE" : "INACTIVE"}.`
-      );
+      setAdminDbSuccess(`MongoDB Updated: ${userEmail} Pro is now ${!currentProStatus ? "ACTIVE" : "INACTIVE"}.`);
       await syncDatabaseData();
     } catch (err) {
       setAdminDbError(`MongoDB Error: ${err.message}`);
@@ -515,7 +798,9 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/admin/reset-evaluations`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone: userEmail })
+        body: JSON.stringify({
+          emailOrPhone: userEmail
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to reset evaluation count in MongoDB.");
@@ -537,7 +822,9 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/admin/delete-user`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone: userEmail })
+        body: JSON.stringify({
+          emailOrPhone: userEmail
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete user document from MongoDB.");
@@ -560,7 +847,10 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/admin/grant-pro`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emailOrPhone: manualGrantEmail.trim(), plan: manualGrantPlan })
+        body: JSON.stringify({
+          emailOrPhone: manualGrantEmail.trim(),
+          plan: manualGrantPlan
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to grant Pro in MongoDB.");
@@ -584,7 +874,6 @@ export default function BizNavigatorApp() {
       authMode === "admin" ||
       authEmailOrPhone.trim().toLowerCase() === "admin" ||
       authEmailOrPhone.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
-
     const emailToSend = isAdminRequest ? ADMIN_EMAIL : authEmailOrPhone.trim();
 
     try {
@@ -597,7 +886,6 @@ export default function BizNavigatorApp() {
           isAdminMode: isAdminRequest
         })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Authentication failed.");
 
@@ -606,7 +894,6 @@ export default function BizNavigatorApp() {
         role: isAdminRequest ? "admin" : data.user?.role || "user",
         evaluationsCount: Number(data.user.evaluationsCount) || 0
       };
-
       setCurrentUser(loggedInUser);
       setAuthPassword("");
 
@@ -638,7 +925,7 @@ export default function BizNavigatorApp() {
 
     setIsSendingSignupOtp(true);
     try {
-      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+      const res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -648,10 +935,8 @@ export default function BizNavigatorApp() {
           password: authPassword.trim()
         })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to dispatch verification OTP.");
-
       setSignupStep(2);
       setSignupOtpSecondsLeft(data.expiresInSeconds || 300);
       setAuthSuccessNotice(`Verification OTP has been sent to ${authEmailOrPhone}.`);
@@ -686,7 +971,6 @@ export default function BizNavigatorApp() {
           otp: signupEnteredOtp.trim()
         })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Verification failed. Invalid OTP code.");
 
@@ -694,7 +978,6 @@ export default function BizNavigatorApp() {
         ...data.user,
         evaluationsCount: Number(data.user.evaluationsCount) || 0
       };
-
       setCurrentUser(registeredUser);
       setAuthPassword("");
       setSignupEnteredOtp("");
@@ -720,12 +1003,12 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/auth/forgot-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmailOrPhone.trim() })
+        body: JSON.stringify({
+          email: authEmailOrPhone.trim()
+        })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to dispatch OTP email.");
-
       setOtpStep(2);
       setOtpSecondsLeft(data.expiresInSeconds || 300);
       setAuthSuccessNotice(`Verification OTP has been sent to ${authEmailOrPhone}.`);
@@ -764,9 +1047,12 @@ export default function BizNavigatorApp() {
       const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: cleanEmail, otp: cleanOtp, newPassword: cleanNew })
+        body: JSON.stringify({
+          email: cleanEmail,
+          otp: cleanOtp,
+          newPassword: cleanNew
+        })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Password reset failed. Invalid or expired OTP.");
 
@@ -789,88 +1075,20 @@ export default function BizNavigatorApp() {
       localStorage.clear();
       sessionStorage.clear();
     } catch (e) {}
-
     setCurrentUser(null);
     setSelectedVenture(null);
     setSubmittedTxns([]);
     setRegisteredUsersList([]);
     setAuthMode("login");
     setActiveTab("idea-finder");
-    setShowAdminConsoleModal(false);
     setShowPaywallModal(false);
     setShowVerificationModal(false);
-
     window.location.href = window.location.origin;
-  };
-
-  // ROBUST GEMINI CALLER (SUPPORTS JSON & PLAIN-TEXT DIALOGUE)
-  const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
-    if (!currentUser) throw new Error("AUTH_REQUIRED");
-    setLastAiError("");
-
-    try {
-      const serverRes = await fetch(`${API_BASE_URL}/ai/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt,
-          systemInstruction,
-          userEmail: currentUser.emailOrPhone,
-          isJson: Boolean(isJson)
-        })
-      });
-
-      if (serverRes.ok) {
-        const serverData = await serverRes.json();
-        if (serverData.text) {
-          return serverData.text;
-        }
-      } else {
-        const errData = await serverRes.json().catch(() => ({}));
-        console.warn("Backend AI route error:", errData.error || serverRes.statusText);
-      }
-    } catch (err) {
-      console.warn("Backend fetch failed, trying direct key fallback:", err);
-    }
-
-    const envKey = VERCEL_ENV_GEMINI_KEY.trim();
-    if (envKey) {
-      const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
-      const generationConfig = { temperature: 0.7 };
-      if (isJson) generationConfig.responseMimeType = "application/json";
-
-      for (const model of models) {
-        try {
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
-                generationConfig
-              })
-            }
-          );
-
-          const data = await response.json();
-          const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-          if (textResponse) {
-            return textResponse;
-          }
-        } catch (e) {
-          console.warn(`Direct model ${model} failed:`, e);
-        }
-      }
-    }
-    return null;
   };
 
   const handleSubmitVerification = async (e) => {
     e.preventDefault();
     setVerificationError("");
-
     const cleanId = inputPaymentId.trim();
     if (!/^pay_[a-zA-Z0-9]{12,24}$/.test(cleanId)) {
       setVerificationError("Invalid Razorpay ID format! Must start with 'pay_'.");
@@ -889,10 +1107,8 @@ export default function BizNavigatorApp() {
           plan: selectedPlanForVerification
         })
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Submission failed.");
-
       await syncDatabaseData();
       setShowVerificationModal(false);
       setInputPaymentId("");
@@ -904,9 +1120,7 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // ==========================================
-  // TAB 1: AI MATCHER & DEEP ANALYSIS
-  // ==========================================
+  // Tab 1: AI Matcher & Deep Analysis
   const [finderBudget, setFinderBudget] = useState("150000");
   const [finderLocation, setFinderLocation] = useState("Bengaluru (Koramangala / HSR Corridor)");
   const [finderSkills, setFinderSkills] = useState("Direct Sales, Food Preparation, Digital Marketing");
@@ -925,8 +1139,7 @@ export default function BizNavigatorApp() {
     setLastAiError("");
 
     try {
-      const prompt = `Act as an elite Indian Startup & SME Strategist.
-Generate 5 DISTINCT, CREATIVE, HIGHLY VIABLE Indian business ideas tailored specifically to these 6 inputs:
+      const prompt = `Act as an elite Indian Startup & SME Strategist. Generate 5 DISTINCT, CREATIVE, HIGHLY VIABLE Indian business ideas tailored specifically to these 6 inputs:
 1. Budget: ₹${finderBudget}
 2. Location / Target City: ${finderLocation}
 3. Skills: ${finderSkills}
@@ -951,7 +1164,6 @@ Return ONLY valid JSON matching this schema:
     }
   ]
 }`;
-
       const rawResponse = await callGeminiAI(
         prompt,
         "You are BizNavigator's Lead Indian SME Matchmaker. Return valid JSON only.",
@@ -1032,7 +1244,6 @@ Return ONLY valid JSON matching this schema:
             firstStep: `Procure sample corrugated rigid boxes and ribbons from regional industrial packagers.`
           }
         ];
-
         setMatchedIdeas(dynamicSynthesis);
         localStorage.setItem(`${STORAGE_PREFIX}matched_ideas_6inputs`, JSON.stringify(dynamicSynthesis));
       }
@@ -1084,7 +1295,6 @@ Return ONLY valid JSON matching this exact structure:
     "vendorNegotiationRule": "Never commit to 100% upfront cash. Pay 30% advance on sample approval."
   }
 }`;
-
       const raw = await callGeminiAI(
         prompt,
         "You are BizNavigator's Senior Indian SME Financial & Supply Chain Auditor. Return JSON only.",
@@ -1107,8 +1317,7 @@ Return ONLY valid JSON matching this exact structure:
           breakEvenAnalysis: {
             estimatedMonthlyFixedCost: "₹35,000 (Rent ₹20k, utilities ₹5k, staff ₹10k)",
             dailyUnitsRequiredToBreakEven: "10 orders / day to cover all fixed costs",
-            comfortableProfitTargetVolume:
-              "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
+            comfortableProfitTargetVolume: "28 - 35 orders / day to generate ₹65,000 - ₹90,000 net take-home",
             timeToBreakEven: "3.5 to 5 Months"
           },
           customerArchetype: {
@@ -1131,24 +1340,18 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // ==========================================
-  // TAB: EXISTING BUSINESS GROWTH & TURNAROUND DOCTOR
-  // ==========================================
+  // Tab: SME Growth & Turnaround Doctor
   const [growthBizName, setGrowthBizName] = useState("");
   const [growthBizType, setGrowthBizType] = useState("Retail Store / High-Street Shop");
   const [growthCity, setGrowthCity] = useState("Pune, Maharashtra");
   const [growthMonthlyRevenue, setGrowthMonthlyRevenue] = useState("350000");
   const [growthNetMargin, setGrowthNetMargin] = useState("18");
   const [growthYearsRunning, setGrowthYearsRunning] = useState("2 Years");
-  const [growthPrimaryHurdle, setGrowthPrimaryHurdle] = useState(
-    "Stagnant Sales & Lack of New Footfall"
-  );
+  const [growthPrimaryHurdle, setGrowthPrimaryHurdle] = useState("Stagnant Sales & Lack of New Footfall");
   const [growthProblemDetails, setGrowthProblemDetails] = useState(
     "Sales have hit a plateau for the last 6 months. Customer walk-ins have dropped due to nearby competitors, and too much money is stuck in customer credit (Udhaar). Need to boost monthly revenue to ₹6-7 Lakhs without huge capex."
   );
-  const [growthTargetGoal, setGrowthTargetGoal] = useState(
-    "Double Monthly Sales & Recover Stuck Working Capital"
-  );
+  const [growthTargetGoal, setGrowthTargetGoal] = useState("Double Monthly Sales & Recover Stuck Working Capital");
   const [isAnalyzingGrowth, setIsAnalyzingGrowth] = useState(false);
   const [growthPlanResult, setGrowthPlanResult] = useState(() =>
     safeGetStorage(`${STORAGE_PREFIX}growth_turnaround_plan`, null)
@@ -1159,11 +1362,8 @@ Return ONLY valid JSON matching this exact structure:
     if (!canPerformEvaluation()) return;
     setIsAnalyzingGrowth(true);
     setLastAiError("");
-
     try {
-      const prompt = `Act as an elite Indian SME Turnaround Specialist and Business Growth Consultant.
-Evaluate this EXISTING Indian business and deliver a high-impact diagnostic and growth acceleration masterplan:
-
+      const prompt = `Act as an elite Indian SME Turnaround Specialist and Business Growth Consultant. Evaluate this EXISTING Indian business and deliver a high-impact diagnostic and growth acceleration masterplan:
 --- BUSINESS PROFILE ---
 1. Business Name & Model: ${growthBizName || "Established SME"} (${growthBizType})
 2. Location/City: ${growthCity}
@@ -1180,17 +1380,40 @@ Return ONLY valid JSON matching this exact structure:
   "healthStatus": "Constrained by Working Capital & Retention",
   "rootCauseDiagnosis": "Direct diagnosis of why the bottleneck exists in the Indian context.",
   "revenueLeakages": [
-    { "area": "Unrecovered Udhaar & Credit Tabs", "estimatedLoss": "₹35,000/mo", "fix": "Immediate automated WhatsApp payment reminders with 2% instant-UPI discount." },
-    { "area": "Dead Stock / Slow Moving Inventory", "estimatedLoss": "₹25,000 tied up", "fix": "Clearance bundle promo on weekends to free up cash." }
+    {
+      "area": "Unrecovered Udhaar & Credit Tabs",
+      "estimatedLoss": "₹35,000/mo",
+      "fix": "Immediate automated WhatsApp payment reminders with 2% instant-UPI discount."
+    },
+    {
+      "area": "Dead Stock / Slow Moving Inventory",
+      "estimatedLoss": "₹25,000 tied up",
+      "fix": "Clearance bundle promo on weekends to free up cash."
+    }
   ],
   "quickWins7Days": [
-    { "title": "7-Day Zero-Capex Cash Unlock", "action": "Exact ground action to take within 48 hours to get immediate revenue." },
-    { "title": "Hyperlocal WhatsApp Broadcast Protocol", "action": "Catalog setup and 100 VIP customer reactivation campaign." }
+    {
+      "title": "7-Day Zero-Capex Cash Unlock",
+      "action": "Exact ground action to take within 48 hours to get immediate revenue."
+    },
+    {
+      "title": "Hyperlocal WhatsApp Broadcast Protocol",
+      "action": "Catalog setup and 100 VIP customer reactivation campaign."
+    }
   ],
   "turnaroundRoadmap": [
-    { "phase": "Month 1: Leak Plugging & Cash Stabilization", "focus": "Stop cash bleed, collect pending receivables, and renegotiate supplier credit terms." },
-    { "phase": "Month 2: High-Margin Upselling & Basket Size Boost", "focus": "Introduce complementary bundling and implement cross-selling incentives." },
-    { "phase": "Month 3: Channel Expansion & B2B Institutional Sales", "focus": "Target local offices, gated communities, or corporate orders for recurring cash flow." }
+    {
+      "phase": "Month 1: Leak Plugging & Cash Stabilization",
+      "focus": "Stop cash bleed, collect pending receivables, and renegotiate supplier credit terms."
+    },
+    {
+      "phase": "Month 2: High-Margin Upselling & Basket Size Boost",
+      "focus": "Introduce complementary bundling and implement cross-selling incentives."
+    },
+    {
+      "phase": "Month 3: Channel Expansion & B2B Institutional Sales",
+      "focus": "Target local offices, gated communities, or corporate orders for recurring cash flow."
+    }
   ],
   "marketingPlaybook": {
     "offlineStrategy": "Low-cost local footfall activator.",
@@ -1199,7 +1422,6 @@ Return ONLY valid JSON matching this exact structure:
   },
   "contingencyWarning": "1 critical pitfall to strictly avoid during this turnaround phase."
 }`;
-
       const raw = await callGeminiAI(
         prompt,
         "You are BizNavigator's Lead Indian SME Turnaround Specialist. Return JSON only.",
@@ -1231,47 +1453,37 @@ Return ONLY valid JSON matching this exact structure:
           quickWins7Days: [
             {
               title: "Day 1-3: VIP Customer Revival Broadcast",
-              action:
-                "Send personalized WhatsApp broadcast with a 'Welcome Back 10% Voucher' to the top 100 customers from the last 6 months."
+              action: "Send personalized WhatsApp broadcast with a 'Welcome Back 10% Voucher' to the top 100 customers from the last 6 months."
             },
             {
               title: "Day 4-7: Slow-Moving Stock Flash Liquidation",
-              action:
-                "Bundle slow inventory with your top 2 best-sellers at a compelling combo price to immediately unlock ₹25,000+ in working capital."
+              action: "Bundle slow inventory with your top 2 best-sellers at a compelling combo price to immediately unlock ₹25,000+ in working capital."
             }
           ],
           turnaroundRoadmap: [
             {
               phase: "Month 1: Cashflow Stabilization & Credit Lockdown",
-              focus:
-                "Plug cash leaks, clear overdue vendor dues, stop discretionary overheads, and recover at least 60% of stuck customer credit."
+              focus: "Plug cash leaks, clear overdue vendor dues, stop discretionary overheads, and recover at least 60% of stuck customer credit."
             },
             {
               phase: "Month 2: Basket Size & Margin Expansion",
-              focus:
-                "Optimize pricing on high-velocity items by 4-6%, introduce tiered combo deals, and train counter staff on suggestive selling."
+              focus: "Optimize pricing on high-velocity items by 4-6%, introduce tiered combo deals, and train counter staff on suggestive selling."
             },
             {
               phase: "Month 3: Institutional B2B & Hyperlocal Scale",
-              focus:
-                "Reach out to 15 nearby residential apartments or corporate offices for weekly subscription deliveries or corporate orders."
+              focus: "Reach out to 15 nearby residential apartments or corporate offices for weekly subscription deliveries or corporate orders."
             }
           ],
           marketingPlaybook: {
-            offlineStrategy:
-              "Place eye-level standees outside the entrance highlighting a signature 'Hero Combo' with fast 3-minute fulfillment.",
-            digitalStrategy:
-              "Update Google Maps profile with high-res photos and request positive reviews from regular patrons using a QR standee.",
-            retentionTactic:
-              "Launch a digital 'Buy 5, Get 6th Free' stamp card via WhatsApp to boost weekly repeat visits."
+            offlineStrategy: "Place eye-level standees outside the entrance highlighting a signature 'Hero Combo' with fast 3-minute fulfillment.",
+            digitalStrategy: "Update Google Maps profile with high-res photos and request positive reviews from regular patrons using a QR standee.",
+            retentionTactic: "Launch a digital 'Buy 5, Get 6th Free' stamp card via WhatsApp to boost weekly repeat visits."
           },
-          contingencyWarning:
-            "Do NOT take high-interest uncollateralized loans (e.g. daily-repayment micro-loans) to fund growth until your gross margins exceed 35%."
+          contingencyWarning: "Do NOT take high-interest uncollateralized loans (e.g. daily-repayment micro-loans) to fund growth until your gross margins exceed 35%."
         };
         setGrowthPlanResult(fallback);
         localStorage.setItem(`${STORAGE_PREFIX}growth_turnaround_plan`, JSON.stringify(fallback));
       }
-
       await recordEvaluationUsage();
     } catch (err) {
       setLastAiError(err.message || "Failed to evaluate business growth plan.");
@@ -1280,9 +1492,7 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // ==========================================
-  // TAB 4: DYNAMIC 10-DAY LAUNCH SPRINT
-  // ==========================================
+  // Tab 4: Dynamic 10-Day Launch Sprint
   const [dailySprintTasks, setDailySprintTasks] = useState(() =>
     safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT)
   );
@@ -1294,17 +1504,22 @@ Return ONLY valid JSON matching this exact structure:
   const handleGenerateDynamicSprint = async (ventureTitle, city) => {
     if (!canPerformEvaluation()) return;
     setIsGeneratingSprint(true);
-    const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
-    const ventureClean = ventureTitle || selectedVenture?.title || "Indian SME Retail / Service";
 
-    const prompt = `Act as an Indian Startup & SME Field Operations Manager.
-Create an exhaustive 10-day step-by-step launch roadmap for:
+    const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
+    const ventureClean = ventureTitle || selectedVenture?.title || "Indian SME Business";
+
+    const prompt = `Act as BizNavigator's Chief SME Operations Strategist in India. Generate an exhaustive, realistic 10-day chronological launch sprint for:
 Venture: "${ventureClean}"
 City: "${targetCityClean}", India.
 
-Tailor each day specifically to this exact business (mention actual local wholesale markets, specific permits like FSSAI/Udyam, equipment dry-run, and Day-1 pricing).
+You MUST generate ALL 10 days from Day 1 to Day 10 covering:
+- Phase 1 (Day 1-2): Validation & Competitor Mystery Shopping in ${targetCityClean}
+- Phase 2 (Day 3-4): Wholesale Mandi / IndiaMART Sourcing & Commercial Space Lease
+- Phase 3 (Day 5-6): Zero-Cost MSME Udyam, GSTIN, Trade/FSSAI Permits & Soundbox
+- Phase 4 (Day 7-8): Equipment Calibration, Dry Run & 20-Person Beta Soft Launch
+- Phase 5 (Day 9-10): Hyperlocal Society WhatsApp Launch, Doors Open & Day-1 Ledger Audit
 
-Return ONLY valid JSON matching this exact structure:
+Return ONLY valid JSON matching this exact structure with all 10 items:
 {
   "sprint": [
     {
@@ -1312,9 +1527,9 @@ Return ONLY valid JSON matching this exact structure:
       "dayNumber": 1,
       "dayTitle": "Day 1: Ground Demand Validation in ${targetCityClean}",
       "phase": "Phase 1: Validation",
-      "task": "Specific ground task for ${ventureClean}...",
+      "task": "Specific task description tailored to ${ventureClean}...",
       "timeEst": "3.5 hrs",
-      "budgetEst": "₹300 - ₹500",
+      "budgetEst": "₹350",
       "priority": "Critical",
       "completed": false
     }
@@ -1324,7 +1539,7 @@ Return ONLY valid JSON matching this exact structure:
     try {
       const raw = await callGeminiAI(
         prompt,
-        "You are BizNavigator's Lead Field Operations Manager. Return JSON only.",
+        "You are BizNavigator's Lead Field Operations Manager. Output valid JSON only with all 10 days.",
         true
       );
       const parsed = extractJsonFromText(raw);
@@ -1336,15 +1551,23 @@ Return ONLY valid JSON matching this exact structure:
         sprintArray = parsed.sprint || parsed.tasks || parsed.days || parsed.schedule;
       }
 
-      if (Array.isArray(sprintArray) && sprintArray.length > 0) {
+      if (Array.isArray(sprintArray) && sprintArray.length >= 5) {
         const formattedSprint = sprintArray.map((item, idx) => ({
           id: item.id || `day_${idx + 1}`,
           dayNumber: item.dayNumber || idx + 1,
-          dayTitle: item.dayTitle || `Day ${idx + 1}: Execution Step`,
+          dayTitle: item.dayTitle || `Day ${idx + 1}: Execution Step for ${ventureClean}`,
           phase:
             item.phase ||
-            (idx < 3 ? "Phase 1: Validation" : idx < 7 ? "Phase 2: Setup" : "Phase 3: Launch"),
-          task: item.task || "Execute planned operational task.",
+            (idx < 2
+              ? "Phase 1: Validation"
+              : idx < 4
+              ? "Phase 2: Supply Chain"
+              : idx < 6
+              ? "Phase 3: Compliance"
+              : idx < 8
+              ? "Phase 4: Operations"
+              : "Phase 5: Launch"),
+          task: item.task || `Execute step ${idx + 1} for ${ventureClean} in ${targetCityClean}.`,
           timeEst: item.timeEst || "3.5 hrs",
           budgetEst: item.budgetEst || "Variable",
           priority: item.priority || "High",
@@ -1353,10 +1576,16 @@ Return ONLY valid JSON matching this exact structure:
 
         setDailySprintTasks(formattedSprint);
         localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(formattedSprint));
-        await recordEvaluationUsage();
+      } else {
+        const fallbackSprint = generateDynamicSprintFallback(ventureClean, targetCityClean);
+        setDailySprintTasks(fallbackSprint);
+        localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(fallbackSprint));
       }
+      await recordEvaluationUsage();
     } catch (err) {
-      console.error("Failed to generate dynamic sprint:", err);
+      const fallbackSprint = generateDynamicSprintFallback(ventureClean, targetCityClean);
+      setDailySprintTasks(fallbackSprint);
+      localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(fallbackSprint));
     } finally {
       setIsGeneratingSprint(false);
     }
@@ -1372,14 +1601,11 @@ Return ONLY valid JSON matching this exact structure:
     setScoutCity(finderLocation.split("(")[0].replace(/,/g, "").trim() || "Bengaluru");
     setScoutDemographic(idea.targetAudience || "Daily consumers & commuters in this city");
     setScoutNeeds(`Optimized for ${idea.category} operations, high target-audience footfall, direct visibility`);
-
     handleGenerateDynamicSprint(idea.title, finderLocation);
-    setActiveTab("location-scout");
+    setActiveTab("roadmap");
   };
 
-  // ==========================================
-  // TAB 2: LOCATION SCOUT
-  // ==========================================
+  // Tab 2: Location Scout
   const [scoutCity, setScoutCity] = useState("Bengaluru");
   const [scoutConcept, setScoutConcept] = useState("Artisanal Chai & Fresh Snack Kiosk");
   const [scoutNeeds, setScoutNeeds] = useState(
@@ -1420,7 +1646,6 @@ Return ONLY valid JSON:
     }
   ]
 }`;
-
       const raw = await callGeminiAI(
         prompt,
         "You are BizNavigator's Lead Catchment Demand Strategist. Return JSON only.",
@@ -1441,10 +1666,8 @@ Return ONLY valid JSON:
               suitabilityScore: 96,
               demandIntensity: "High Supply Deficit (Severe Peak Hours Squeeze)",
               unmetNeedAnalysis: `Over 45,000 corporate professionals pass through this node daily. Zero sub-3 minute hygienic alternatives.`,
-              idealPlacementSpot:
-                "Within 30–50 meters of the primary office feeder junction, facing the morning walkway.",
-              demandTriggers:
-                "8:00 AM – 11:00 AM (Morning rush) & 4:30 PM – 7:30 PM (Evening transition).",
+              idealPlacementSpot: "Within 30–50 meters of the primary office feeder junction, facing the morning walkway.",
+              demandTriggers: "8:00 AM – 11:00 AM (Morning rush) & 4:30 PM – 7:30 PM (Evening transition).",
               competitionVoid: "Current vendors suffer from slow billing and cluttered counters."
             },
             {
@@ -1470,9 +1693,7 @@ Return ONLY valid JSON:
     }
   };
 
-  // ==========================================
-  // TAB 3: FEASIBILITY & RISK MATRIX
-  // ==========================================
+  // Tab 3: Feasibility & Risk Matrix
   const [businessIdea, setBusinessIdea] = useState("");
   const [targetCity, setTargetCity] = useState("HSR Layout, Bengaluru");
   const [initialCapital, setInitialCapital] = useState("150000");
@@ -1524,7 +1745,6 @@ Return ONLY valid JSON matching this schema:
     "downsideSurvivalPlan": "Emergency Protocol: Cut staff hours and pivot to pre-booked corporate catering."
   }
 }`;
-
       const raw = await callGeminiAI(
         prompt,
         "You are BizNavigator's Senior Indian SME Strategist & Risk Auditor. Return JSON only.",
@@ -1575,8 +1795,7 @@ Return ONLY valid JSON matching this schema:
             udhaarRisk: {
               level: "Medium",
               threat: "Customers requesting delayed credit settlement ('Likh lena').",
-              mitigation:
-                "Install an audible UPI soundbox prominently. Enforce 100% upfront digital billing."
+              mitigation: "Install an audible UPI soundbox prominently. Enforce 100% upfront digital billing."
             },
             seasonalRisk: {
               level: "High",
@@ -1599,9 +1818,7 @@ Return ONLY valid JSON matching this schema:
   };
 
   const toggleDailyTask = (id) => {
-    const updated = dailySprintTasks.map((t) =>
-      t.id === id ? { ...t, completed: !t.completed } : t
-    );
+    const updated = dailySprintTasks.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t));
     setDailySprintTasks(updated);
     localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(updated));
   };
@@ -1619,9 +1836,7 @@ Return ONLY valid JSON matching this schema:
     setTaskAdviceModal({ title: taskItem.dayTitle, phase: taskItem.phase, sopText: "" });
 
     try {
-      const ventureContext = selectedVenture
-        ? selectedVenture.title
-        : "Indian SME Retail / Service Venture";
+      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Business";
       const prompt = `Act as BizNavigator's Lead Field Operations Manager for Indian small businesses. Provide a step-by-step Standard Operating Procedure (SOP) for this launch task:
 Day & Task: "${taskItem.dayTitle}" - ${taskItem.task}
 Business Context: ${ventureContext}
@@ -1639,13 +1854,11 @@ Provide:
         phase: taskItem.phase,
         sopText:
           raw ||
-          `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.`
+          `### Field SOP for ${taskItem.dayTitle}\n\n1. Complete all market vendor visits early before 11 AM.\n2. **Negotiation Script (Hinglish):** "Bhaiya, pehla sample wholesale price pe dijiye, hum repeat bulk order plan kar rahe hain."\n3. **Pitfall:** Never release 100% advance payments without delivery verification.\n4. **Success Metric:** Minimum 3 vendor quotes compared and 1 trial lot secured.`
       });
       await recordEvaluationUsage();
     } catch (err) {
-      setTaskAdviceModal((prev) =>
-        prev ? { ...prev, sopText: "Unable to retrieve SOP. Please try again." } : null
-      );
+      setTaskAdviceModal((prev) => (prev ? { ...prev, sopText: "Unable to retrieve SOP. Please try again." } : null));
     } finally {
       setIsLoadingTaskAdvice(false);
     }
@@ -1653,16 +1866,13 @@ Provide:
 
   const completedDailyCount = dailySprintTasks.filter((t) => t.completed).length;
   const sprintProgressPercent = Math.round((completedDailyCount / dailySprintTasks.length) * 100);
-
   const filteredTasks = dailySprintTasks.filter((t) => {
     if (sprintFilter === "incomplete") return !t.completed;
     if (sprintFilter === "completed") return t.completed;
     return true;
   });
 
-  // ==========================================
-  // TAB 5: CALCULATORS & LEDGER
-  // ==========================================
+  // Tab 5: Calculators & Ledger
   const [costPrice, setCostPrice] = useState(250);
   const [shippingCost, setShippingCost] = useState(40);
   const [gstPercent, setGstPercent] = useState(18);
@@ -1670,7 +1880,6 @@ Provide:
   const [monthlyOverhead, setMonthlyOverhead] = useState(45000);
   const [unitRevenue, setUnitRevenue] = useState(500);
   const [unitVariableCost, setUnitVariableCost] = useState(220);
-
   const [aiMarginAnalysis, setAiMarginAnalysis] = useState("");
   const [isAnalyzingMargin, setIsAnalyzingMargin] = useState(false);
   const [aiLedgerAudit, setAiLedgerAudit] = useState("");
@@ -1695,14 +1904,11 @@ Provide:
       const prompt = `Indian SME Pricing Check: Cost ₹${costPrice}, Packing/Shipping ₹${shippingCost}, GST ${gstPercent}%, Selling Price ₹${sellingPrice}, Net Margin ${netMargin}%. Provide profit buffer & RTO observations.`;
       const res = await callGeminiAI(prompt, "You are BizNavigator's Pricing & Margins Doctor.", false);
       setAiMarginAnalysis(
-        res ||
-          `Margin of ${netMargin}% is healthy. Factor in a 10-12% buffer for return-to-origin on cash-on-delivery orders.`
+        res || `Margin of ${netMargin}% is healthy. Factor in a 10-12% buffer for return-to-origin on cash-on-delivery orders.`
       );
       await recordEvaluationUsage();
     } catch (err) {
-      setAiMarginAnalysis(
-        "Pricing audit complete. Ensure vendor tax invoices are collected for Input Tax Credit."
-      );
+      setAiMarginAnalysis("Pricing audit complete. Ensure vendor tax invoices are collected for Input Tax Credit.");
     } finally {
       setIsAnalyzingMargin(false);
     }
@@ -1734,13 +1940,12 @@ Provide:
   const gstDeduction = Number(sellingPrice) * (Number(gstPercent) / (100 + Number(gstPercent)));
   const netProfitUnit = Number(sellingPrice) - gstDeduction - totalUnitCost;
   const netMarginPercent = sellingPrice > 0 ? ((netProfitUnit / Number(sellingPrice)) * 100).toFixed(1) : 0;
+
   const unitContribution = Number(unitRevenue) - Number(unitVariableCost);
   const breakEvenUnitsNeeded =
     unitContribution > 0 ? Math.ceil(Number(monthlyOverhead) / unitContribution) : "N/A";
 
-  // ==========================================
-  // TAB 6: LIVE MARKET RADAR
-  // ==========================================
+  // Tab 6: Live Market Radar
   const [marketTrends, setMarketTrends] = useState(() =>
     safeGetStorage(`${STORAGE_PREFIX}market_trends`, [
       {
@@ -1767,7 +1972,9 @@ Provide:
     setIsScanningMarket(true);
     try {
       const prompt = `Provide 3 fresh Indian SME intelligence cards (Logistics/ONDC, Wholesale Sourcing, Compliance/GST). Output JSON:
-{ "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }] }`;
+{
+  "updates": [{ "tag": "Category", "title": "Catchy Title", "desc": "Practical advice" }]
+}`;
       const raw = await callGeminiAI(prompt, "You are BizNavigator's SME Market Analyst.", true);
       const parsed = extractJsonFromText(raw);
       if (parsed?.updates && Array.isArray(parsed.updates)) {
@@ -1781,18 +1988,24 @@ Provide:
     }
   };
 
-  // ==========================================
-  // 24/7 DYNAMIC BIZMENTOR CHAT
-  // ==========================================
-  const [chatMessages, setChatMessages] = useState([
-    {
-      sender: "mentor",
-      text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about negotiations, pricing, permits, vendor sourcing, or local retail in India!"
-    }
-  ]);
+  // BizMentor AI Chat with conversation memory & natural tone
+  const [chatMessages, setChatMessages] = useState(() =>
+    safeGetStorage(`${STORAGE_PREFIX}bizmentor_chat`, [
+      {
+        sender: "mentor",
+        text: "Namaste! I am your 24/7 BizMentor AI. Ask me anything about negotiations, pricing, permits, vendor sourcing, or local retail in India!"
+      }
+    ])
+  );
   const [inputChat, setInputChat] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const chatBottomRef = useRef(null);
+
+  useEffect(() => {
+    localStorage.setItem(`${STORAGE_PREFIX}bizmentor_chat`, JSON.stringify(chatMessages));
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
 
   const handleSendChat = async () => {
     if (!inputChat.trim()) return;
@@ -1800,42 +2013,44 @@ Provide:
 
     const userText = inputChat.trim();
     setInputChat("");
-    setChatMessages((prev) => [...prev, { sender: "user", text: userText }]);
+    const newHistory = [...chatMessages, { sender: "user", text: userText }];
+    setChatMessages(newHistory);
     setIsChatLoading(true);
 
+    const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Business";
+    const recentConvo = newHistory
+      .slice(-5)
+      .map((m) => `${m.sender === "user" ? "Founder" : "BizMentor"}: ${m.text}`)
+      .join("\n");
+
+    const prompt = `You are BizMentor AI, a seasoned, street-smart Indian startup and MSME mentor.
+Venture Context: ${ventureContext}
+Recent Conversation:
+${recentConvo}
+Founder's Query: "${userText}"
+
+Guidelines:
+1. Speak in a helpful, conversational Indian business tone (easy English with natural Hinglish terms where helpful like Mandi, Khata, Soundbox, Jugaad).
+2. Give actionable, concrete steps with numbers and Indian realities (APMC, IndiaMART, Udyam, UPI soundbox, 11-month rent lease).
+3. If the user greeted or asked a quick question, greet them warmly and address their exact situation without giving generic essays.`;
+
     try {
-      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service";
-      const prompt = `You are BizMentor AI, an expert, street-smart mentor for Indian MSMEs and startups.
-User's query: "${userText}"
-Active Business Context: ${ventureContext}
-
-Provide a direct, practical, culturally accurate response in easy Hinglish/English.
-If it is a simple greeting like 'Hi', 'Hello', greet them warmly and ask what specific challenge (e.g. suppliers, margins, licenses, daily operations) they want to solve for their venture today.
-Do NOT give a generic pre-written paragraph. Address their exact query.`;
-
       const res = await callGeminiAI(
         prompt,
-        "You are BizMentor AI, an authentic Indian small business advisor and helpful collaborator. Provide clear, direct, and conversational responses without boilerplate text.",
+        "You are BizMentor AI, an authentic, supportive, and street-smart Indian small business advisor.",
         false
       );
-
       if (res && res.trim().length > 0) {
         setChatMessages((prev) => [...prev, { sender: "mentor", text: res.trim() }]);
         await recordEvaluationUsage();
       } else {
-        setChatMessages((prev) => [
-          ...prev,
-          { sender: "mentor", text: "Thoda network latency issue hua hai. Kripya apna sawal dobara bhejein!" }
-        ]);
+        const smartFallback = generateBizMentorFallback(userText, ventureContext, newHistory);
+        setChatMessages((prev) => [...prev, { sender: "mentor", text: smartFallback }]);
+        await recordEvaluationUsage();
       }
     } catch (err) {
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: "mentor",
-          text: "AI service connect karne me dikkat aayi. Kripya internet ya API check karein."
-        }
-      ]);
+      const smartFallback = generateBizMentorFallback(userText, ventureContext, newHistory);
+      setChatMessages((prev) => [...prev, { sender: "mentor", text: smartFallback }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -2003,9 +2218,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               ) : (
                 <form onSubmit={handleSignupVerifyAndRegister} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      Enter 6-Digit OTP from Email
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">Enter 6-Digit OTP from Email</label>
                     <input
                       type="text"
                       required
@@ -2029,9 +2242,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               otpStep === 1 ? (
                 <form onSubmit={handleForgotRequestOtp} className="space-y-4 text-xs">
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      Registered Email Address
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">Registered Email Address</label>
                     <input
                       type="email"
                       required
@@ -2057,9 +2268,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               ) : (
                 <form onSubmit={handleForgotVerifyAndReset} className="space-y-3.5 text-xs">
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      6-Digit OTP from Email
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">6-Digit OTP from Email</label>
                     <input
                       type="text"
                       required
@@ -2070,7 +2279,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono tracking-widest text-center"
                     />
                   </div>
-
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="text-slate-300 font-semibold">New Password</label>
@@ -2092,11 +2300,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
                     />
                   </div>
-
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      Confirm New Password
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">Confirm New Password</label>
                     <input
                       type={showPasswordToggle ? "text" : "password"}
                       required
@@ -2106,7 +2311,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100"
                     />
                   </div>
-
                   <button
                     type="submit"
                     disabled={isAuthLoading}
@@ -2120,9 +2324,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               <form onSubmit={handleAuthSubmit} className="space-y-4 text-xs">
                 {authMode === "admin" ? (
                   <div>
-                    <label className="block text-slate-300 font-semibold mb-1">
-                      Master Admin Secret Key
-                    </label>
+                    <label className="block text-slate-300 font-semibold mb-1">Master Admin Secret Key</label>
                     <input
                       type="password"
                       required
@@ -2172,7 +2374,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     </div>
                   </>
                 )}
-
                 <button
                   type="submit"
                   disabled={isAuthLoading}
@@ -2219,6 +2420,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
   // ==========================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
+      {/* APP HEADER */}
       <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -2260,10 +2462,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 <span className="text-xs text-slate-300 flex items-center space-x-1.5 bg-amber-500/10 border border-amber-500/30 px-2.5 py-1 rounded-xl">
                   <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                   <span>
-                    Free:{" "}
-                    <strong className="text-amber-400 font-bold">
-                      {remainingEvaluations} of {FREE_USAGE_LIMIT} left
-                    </strong>
+                    Free: <strong className="text-amber-400 font-bold">{remainingEvaluations} of {FREE_USAGE_LIMIT} left</strong>
                   </span>
                 </span>
                 <button
@@ -2370,7 +2569,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
 
       {/* MAIN CONTAINER */}
       <main className="max-w-7xl mx-auto w-full px-4 py-8 flex-1">
-        {/* FREE EVALUATION COUNTDOWN NOTE BANNER */}
         {!isAdminUser && !isUserPro && (
           <div className="bg-slate-900 border border-amber-500/30 rounded-2xl p-3.5 mb-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs shadow-lg">
             <div className="flex items-center space-x-3">
@@ -2388,17 +2586,11 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 <p className="text-slate-400 text-[11px]">
                   {remainingEvaluations > 0 ? (
                     <>
-                      You have{" "}
-                      <strong className="text-amber-400">
-                        {remainingEvaluations} of {FREE_USAGE_LIMIT} free evaluations remaining
-                      </strong>
-                      . Every AI analysis, growth turnaround audit, calculator check, or market radar uses 1
-                      evaluation.
+                      You have <strong className="text-amber-400">{remainingEvaluations} of {FREE_USAGE_LIMIT} free evaluations remaining</strong>. Every AI analysis, calculator check, or market radar uses 1 evaluation.
                     </>
                   ) : (
                     <span className="text-rose-400 font-semibold">
-                      Free usage limit reached (0/{FREE_USAGE_LIMIT} remaining). Please upgrade to Pro for unlimited
-                      evaluations.
+                      Free usage limit reached (0/{FREE_USAGE_LIMIT} remaining). Please upgrade to Pro for unlimited evaluations.
                     </span>
                   )}
                 </p>
@@ -2439,8 +2631,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   Administrative Works & Live Subscriptions
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
-                  Connected directly to your MongoDB database collections: <code>subscriptions</code> &{" "}
-                  <code>users</code>.
+                  Connected directly to your MongoDB database collections: <code>subscriptions</code> & <code>users</code>.
                 </p>
               </div>
               <button
@@ -2463,6 +2654,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 </div>
               </div>
             )}
+
             {adminDbSuccess && (
               <div className="bg-emerald-950/60 border border-emerald-500 p-4 rounded-2xl text-xs text-emerald-300 flex items-start space-x-3">
                 <CheckCircle className="w-5 h-5 flex-shrink-0 text-emerald-400 mt-0.5" />
@@ -2516,9 +2708,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
                   <div>
-                    <h3 className="font-extrabold text-slate-100 text-base">
-                      Submitted Payments from MongoDB
-                    </h3>
+                    <h3 className="font-extrabold text-slate-100 text-base">Submitted Payments from MongoDB</h3>
                     <p className="text-xs text-slate-400 mt-0.5">
                       Approving grants permanent Pro access to the user in MongoDB.
                     </p>
@@ -2543,8 +2733,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 {filteredSubmittedTxns.length === 0 ? (
                   <div className="py-12 text-center text-slate-500 text-xs border border-dashed border-slate-800 rounded-2xl">
                     <Database className="w-8 h-8 text-slate-700 mx-auto mb-2" />
-                    No transactions found in MongoDB matching status:{" "}
-                    <strong className="text-slate-400">{txnFilterStatus}</strong>.
+                    No transactions found in MongoDB matching status: <strong className="text-slate-400">{txnFilterStatus}</strong>.
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -2563,10 +2752,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           const isApproved = txn.status === "approved";
                           const isRejected = txn.status === "rejected";
                           return (
-                            <tr
-                              key={txn._id || txn.id || txn.paymentId}
-                              className="hover:bg-slate-950/40 transition"
-                            >
+                            <tr key={txn._id || txn.id || txn.paymentId} className="hover:bg-slate-950/40 transition">
                               <td className="py-3.5 px-3 font-bold text-amber-400">{txn.paymentId}</td>
                               <td className="py-3.5 px-3 font-sans text-slate-200">{txn.userEmail}</td>
                               <td className="py-3.5 px-3 font-sans text-slate-300">{txn.plan}</td>
@@ -2619,12 +2805,9 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             {adminSubTab === "users" && (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
                 <div className="border-b border-slate-800 pb-4">
-                  <h3 className="font-extrabold text-slate-100 text-base">
-                    MongoDB User Accounts ({registeredUsersList.length})
-                  </h3>
+                  <h3 className="font-extrabold text-slate-100 text-base">MongoDB User Accounts ({registeredUsersList.length})</h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Directly modify user records, reset their free evaluation limits to 0, or grant Pro
-                    status in the database.
+                    Directly modify user records, reset their free evaluation limits to 0, or grant Pro status in the database.
                   </p>
                 </div>
 
@@ -2656,17 +2839,14 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                               <td className="py-3 px-3">
                                 <span
                                   className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                                    u.role === "admin"
-                                      ? "bg-rose-950 text-rose-400"
-                                      : "bg-slate-800 text-slate-400"
+                                    u.role === "admin" ? "bg-rose-950 text-rose-400" : "bg-slate-800 text-slate-400"
                                   }`}
                                 >
                                   {u.role || "user"}
                                 </span>
                               </td>
                               <td className="py-3 px-3">
-                                <span className="text-amber-400 font-bold">{u.evaluationsCount || 0}</span> /{" "}
-                                {FREE_USAGE_LIMIT}
+                                <span className="text-amber-400 font-bold">{u.evaluationsCount || 0}</span> / {FREE_USAGE_LIMIT}
                               </td>
                               <td className="py-3 px-3">
                                 {isPro ? (
@@ -2723,12 +2903,9 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             {adminSubTab === "manual" && (
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-lg space-y-4 shadow-xl text-xs">
                 <div>
-                  <h3 className="font-extrabold text-slate-100 text-base">
-                    Manual MongoDB Subscription Creator
-                  </h3>
+                  <h3 className="font-extrabold text-slate-100 text-base">Manual MongoDB Subscription Creator</h3>
                   <p className="text-slate-400 mt-1">
-                    Grant immediate Pro membership by user email for bank transfers, cash payments, or
-                    testing.
+                    Grant immediate Pro membership by user email for bank transfers, cash payments, or testing.
                   </p>
                 </div>
                 <form onSubmit={handleAdminManualGrant} className="space-y-4 pt-2">
@@ -2777,7 +2954,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   <Target className="w-5 h-5 text-amber-400" />
                   <span>Configure Your 6 Parameters</span>
                 </h2>
-
                 <form onSubmit={handleGenerateIdeas} className="space-y-3.5 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">1. Capital Budget (₹ INR)</label>
@@ -2789,11 +2965,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-100 font-mono"
                     />
                   </div>
-
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      2. Target Location / Indian City
-                    </label>
+                    <label className="block font-semibold text-slate-300 mb-1">2. Target Location / Indian City</label>
                     <input
                       type="text"
                       required
@@ -2802,11 +2975,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      3. Your Skills & Strengths
-                    </label>
+                    <label className="block font-semibold text-slate-300 mb-1">3. Your Skills & Strengths</label>
                     <textarea
                       rows={2}
                       required
@@ -2816,11 +2986,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1">
-                      4. Passions & Niche Interests
-                    </label>
+                    <label className="block font-semibold text-slate-300 mb-1">4. Passions & Niche Interests</label>
                     <input
                       type="text"
                       required
@@ -2830,7 +2997,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block font-semibold text-slate-300 mb-1">5. Working Time</label>
@@ -2844,7 +3010,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                         <option>Weekend-Only (8-10 hrs)</option>
                       </select>
                     </div>
-
                     <div>
                       <label className="block font-semibold text-slate-300 mb-1">6. Risk Appetite</label>
                       <select
@@ -2858,7 +3023,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </select>
                     </div>
                   </div>
-
                   <button
                     type="submit"
                     disabled={isFindingIdeas}
@@ -2905,17 +3069,14 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           </span>
                           <span className="text-xs text-emerald-400 font-bold">{idea.monthlyPotential}</span>
                         </div>
-
                         <div>
                           <h4 className="text-base font-extrabold text-slate-100">{idea.title}</h4>
                           <p className="text-xs text-slate-400">{idea.tagline}</p>
                         </div>
-
                         <div className="bg-slate-950/80 p-3 rounded-2xl border border-slate-800 text-xs text-slate-300">
                           <strong className="text-amber-400">Why it fits your inputs: </strong>
                           {idea.whyFit}
                         </div>
-
                         <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-800/80">
                           <button
                             type="button"
@@ -2930,7 +3091,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                             onClick={() => handleChooseVenture(idea)}
                             className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 transition cursor-pointer"
                           >
-                            <span>{isSelected ? "Active Pipeline 🚀" : "Adopt Venture 🚀"}</span>
+                            <span>Adopt & Generate 10-Day Sprint 🗓️</span>
                             <ArrowRight className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -2948,6 +3109,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               </div>
             </div>
 
+            {/* Deep Analysis Modal */}
             {deepAnalysisIdea && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[110] flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-3xl w-full max-h-[90vh] overflow-y-auto space-y-6 relative shadow-2xl text-xs">
@@ -2958,7 +3120,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   >
                     <X className="w-5 h-5" />
                   </button>
-
                   <div className="border-b border-slate-800 pb-4">
                     <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase">
                       Deep Feasibility & Unit Economics Audit
@@ -3040,9 +3201,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                             </strong>
                           </div>
                           <div className="bg-slate-900 p-3 rounded-xl">
-                            <span className="text-slate-400 block text-[11px]">
-                              Healthy Profit Target Volume:
-                            </span>
+                            <span className="text-slate-400 block text-[11px]">Healthy Profit Target Volume:</span>
                             <strong className="text-emerald-400">
                               {deepAnalysisData.breakEvenAnalysis?.comfortableProfitTargetVolume}
                             </strong>
@@ -3112,7 +3271,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           }}
                           className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs flex items-center space-x-1.5 cursor-pointer"
                         >
-                          <span>Adopt This Venture & Scout Locations 📍</span>
+                          <span>Adopt This Venture & Launch 10-Day Sprint 🗓️</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
@@ -3128,7 +3287,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
         {activeTab === "business-growth" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-              {/* Left Column: Form */}
+              {/* Left Column: Existing Business Profile & Hurdle Form */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="border-b border-slate-800 pb-3">
                   <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
@@ -3139,8 +3298,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     SME Growth & Turnaround Doctor
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Feed your actual numbers, operational hurdles, and cashflow roadblocks to get an
-                    AI-engineered stabilization and 90-day expansion roadmap.
+                    Feed your actual numbers, operational hurdles, and cashflow roadblocks to get an AI-engineered stabilization and 90-day expansion roadmap.
                   </p>
                 </div>
 
@@ -3293,7 +3451,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               <div className="lg:col-span-7 space-y-4">
                 {growthPlanResult ? (
                   <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl text-xs">
-                    {/* Top Diagnostic Banner */}
+                    {/* Diagnostic Top Banner */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
                       <div>
                         <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
@@ -3322,6 +3480,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                             {growthPlanResult.healthScore} / 10
                           </span>
                         </div>
+
                         <button
                           type="button"
                           onClick={() => window.print()}
@@ -3352,10 +3511,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {growthPlanResult.revenueLeakages?.map((leak, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1.5"
-                          >
+                          <div key={idx} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1.5">
                             <div className="flex justify-between items-center">
                               <span className="font-bold text-slate-200">{leak.area}</span>
                               <span className="text-[10px] bg-rose-950/80 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded font-bold">
@@ -3395,10 +3551,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </h4>
                       <div className="space-y-2.5">
                         {growthPlanResult.turnaroundRoadmap?.map((phase, idx) => (
-                          <div
-                            key={idx}
-                            className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-start space-x-3"
-                          >
+                          <div key={idx} className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 flex items-start space-x-3">
                             <div className="w-6 h-6 rounded-lg bg-sky-500/10 text-sky-400 border border-sky-500/30 flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">
                               {idx + 1}
                             </div>
@@ -3420,28 +3573,16 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                         </h4>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]">
                           <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">
-                              Offline Footfall
-                            </span>
-                            <p className="text-slate-200 mt-1">
-                              {growthPlanResult.marketingPlaybook.offlineStrategy}
-                            </p>
+                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">Offline Footfall</span>
+                            <p className="text-slate-200 mt-1">{growthPlanResult.marketingPlaybook.offlineStrategy}</p>
                           </div>
                           <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">
-                              WhatsApp & Digital
-                            </span>
-                            <p className="text-slate-200 mt-1">
-                              {growthPlanResult.marketingPlaybook.digitalStrategy}
-                            </p>
+                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">WhatsApp & Digital</span>
+                            <p className="text-slate-200 mt-1">{growthPlanResult.marketingPlaybook.digitalStrategy}</p>
                           </div>
                           <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
-                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">
-                              Repeat Loyalty
-                            </span>
-                            <p className="text-slate-200 mt-1">
-                              {growthPlanResult.marketingPlaybook.retentionTactic}
-                            </p>
+                            <span className="text-slate-400 block font-semibold text-[10px] uppercase">Repeat Loyalty</span>
+                            <p className="text-slate-200 mt-1">{growthPlanResult.marketingPlaybook.retentionTactic}</p>
                           </div>
                         </div>
                       </div>
@@ -3452,9 +3593,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       <div className="bg-rose-950/20 border border-rose-500/40 p-3.5 rounded-2xl text-[11px] text-rose-300 flex items-start space-x-2.5">
                         <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
                         <div>
-                          <strong className="block text-rose-300 font-bold">
-                            Pitfall to Avoid During Turnaround:
-                          </strong>
+                          <strong className="block text-rose-300 font-bold">Pitfall to Avoid During Turnaround:</strong>
                           <span>{growthPlanResult.contingencyWarning}</span>
                         </div>
                       </div>
@@ -3465,8 +3604,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     <Rocket className="w-12 h-12 text-slate-700 mb-3" />
                     <h4 className="text-slate-300 font-bold text-sm">Enter Your Existing Business Details</h4>
                     <p className="text-xs text-slate-500 max-w-sm mt-1">
-                      Our Indian SME Diagnostic Doctor will analyze your revenue, catch hidden leaks, and build a
-                      90-day turnaround plan.
+                      Our Indian SME Diagnostic Doctor will analyze your revenue, catch hidden leaks, and build a 90-day turnaround plan.
                     </p>
                   </div>
                 )}
@@ -3489,8 +3627,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     Pinpoint Local Demand Hotspots
                   </h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Evaluates locations based on unmet customer hunger, catchment footfall, and operational
-                    fit—not rental rates.
+                    Evaluates locations based on unmet customer hunger, catchment footfall, and operational fit.
                   </p>
                 </div>
 
@@ -3606,7 +3743,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       <div className="bg-amber-950/20 border border-amber-500/30 px-3.5 py-2 rounded-2xl flex items-center space-x-2 text-xs text-amber-300">
                         <Flame className="w-4 h-4 flex-shrink-0 text-amber-400" />
                         <span>
-                          <strong>Demand Profile: </strong> {loc.demandIntensity}
+                          <strong>Demand Profile: </strong>
+                          {loc.demandIntensity}
                         </span>
                       </div>
 
@@ -3668,7 +3806,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     <span>Business Feasibility & Indian Risk Audit</span>
                   </h3>
                 </div>
-
                 <form onSubmit={handleEvaluateIdea} className="space-y-3.5 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Business Concept / Format</label>
@@ -3681,7 +3818,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Target City / Micro-Zone</label>
                     <input
@@ -3692,7 +3828,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Initial Capital (₹ INR)</label>
                     <input
@@ -3703,7 +3838,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 font-mono"
                     />
                   </div>
-
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1">Primary Customer Segment</label>
                     <input
@@ -3714,7 +3848,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200"
                     />
                   </div>
-
                   <button
                     type="submit"
                     disabled={isAnalyzing}
@@ -3740,9 +3873,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   <div id="printable-report" className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl text-xs">
                     <div className="flex justify-between items-center border-b border-slate-800 pb-3">
                       <div>
-                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
-                          Feasibility Verdict
-                        </span>
+                        <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Feasibility Verdict</span>
                         <h3 className="font-extrabold text-slate-100 text-base">{businessIdea}</h3>
                       </div>
                       <button
@@ -3758,21 +3889,15 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     <div className="grid grid-cols-3 gap-3 text-center text-xs">
                       <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <span className="text-slate-400 block text-[10px]">Viability Score</span>
-                        <span className="font-black text-emerald-400 block text-lg">
-                          {analysisResult.viabilityScore}/10
-                        </span>
+                        <span className="font-black text-emerald-400 block text-lg">{analysisResult.viabilityScore}/10</span>
                       </div>
                       <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <span className="text-slate-400 block text-[10px]">Net Margin</span>
-                        <span className="font-black text-sky-400 block text-lg">
-                          {analysisResult.estimatedMarginPercent}
-                        </span>
+                        <span className="font-black text-sky-400 block text-lg">{analysisResult.estimatedMarginPercent}</span>
                       </div>
                       <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800">
                         <span className="text-slate-400 block text-[10px]">Break-Even</span>
-                        <span className="font-black text-indigo-400 block text-lg">
-                          {analysisResult.breakEvenMonths}
-                        </span>
+                        <span className="font-black text-indigo-400 block text-lg">{analysisResult.breakEvenMonths}</span>
                       </div>
                     </div>
 
@@ -3790,7 +3915,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           </div>
                         ))}
                       </div>
-
                       <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
                         <strong className="text-sky-400 block font-bold">Monthly Opex Estimates:</strong>
                         {analysisResult.monthlyOpex?.map((o, i) => (
@@ -3803,9 +3927,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     </div>
 
                     <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                      <strong className="text-indigo-400 block font-bold mb-2">
-                        Mandatory Indian Registrations & Permits:
-                      </strong>
+                      <strong className="text-indigo-400 block font-bold mb-2">Mandatory Indian Registrations & Permits:</strong>
                       <div className="flex flex-wrap gap-2">
                         {analysisResult.licenses?.map((lic, i) => (
                           <span key={i} className="bg-slate-900 border border-slate-700 px-2.5 py-1 rounded-lg text-slate-300 text-[11px]">
@@ -3821,7 +3943,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           <AlertTriangle className="w-4 h-4" />
                           <span>Indian SME Risk & Threat Matrix</span>
                         </h4>
-
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-1">
                             <div className="flex justify-between items-center">
@@ -3836,12 +3957,9 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                                 {analysisResult.riskMatrix.udhaarRisk.level}
                               </span>
                             </div>
-                            <p className="text-slate-400 text-[11px]">
-                              {analysisResult.riskMatrix.udhaarRisk.threat}
-                            </p>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.udhaarRisk.threat}</p>
                             <div className="text-emerald-400 text-[11px] mt-1">
-                              <strong>Mitigation: </strong>
-                              {analysisResult.riskMatrix.udhaarRisk.mitigation}
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.udhaarRisk.mitigation}
                             </div>
                           </div>
 
@@ -3858,12 +3976,9 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                                 {analysisResult.riskMatrix.seasonalRisk.level}
                               </span>
                             </div>
-                            <p className="text-slate-400 text-[11px]">
-                              {analysisResult.riskMatrix.seasonalRisk.threat}
-                            </p>
+                            <p className="text-slate-400 text-[11px]">{analysisResult.riskMatrix.seasonalRisk.threat}</p>
                             <div className="text-emerald-400 text-[11px] mt-1">
-                              <strong>Mitigation: </strong>
-                              {analysisResult.riskMatrix.seasonalRisk.mitigation}
+                              <strong>Mitigation: </strong>{analysisResult.riskMatrix.seasonalRisk.mitigation}
                             </div>
                           </div>
                         </div>
@@ -3905,11 +4020,10 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">
                     {selectedVenture
-                      ? `Dynamically generated specifically for "${selectedVenture.title}" in ${targetCity}.`
+                      ? `Custom sprint formulated for "${selectedVenture.title}" in ${targetCity}.`
                       : "Chronological Day 1 through Day 10 execution blueprint with field checklists & scripts."}
                   </p>
                 </div>
-
                 <div className="flex items-center space-x-2">
                   <button
                     type="button"
@@ -3920,10 +4034,10 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                         targetCity
                       )
                     }
-                    className="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 cursor-pointer transition"
+                    className="text-xs bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl flex items-center space-x-1 cursor-pointer transition shadow"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingSprint ? "animate-spin" : ""}`} />
-                    <span>{isGeneratingSprint ? "Generating with AI..." : "Regenerate with AI 🤖"}</span>
+                    <span>{isGeneratingSprint ? "Formulating 10 Days..." : "Regenerate with AI 🤖"}</span>
                   </button>
                   <button
                     type="button"
@@ -3983,14 +4097,9 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           <Circle className="w-5 h-5 text-slate-600" />
                         )}
                       </button>
-
                       <div className="space-y-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`font-extrabold ${
-                              t.completed ? "line-through text-slate-500" : "text-slate-100"
-                            }`}
-                          >
+                          <span className={`font-extrabold ${t.completed ? "line-through text-slate-500" : "text-slate-100"}`}>
                             {t.dayTitle}
                           </span>
                           <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700">
@@ -3998,32 +4107,21 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                           </span>
                           <span
                             className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                              t.priority === "Critical"
-                                ? "bg-rose-950 text-rose-400"
-                                : "bg-amber-950 text-amber-400"
+                              t.priority === "Critical" ? "bg-rose-950 text-rose-400" : "bg-amber-950 text-amber-400"
                             }`}
                           >
                             {t.priority}
                           </span>
                         </div>
-                        <p
-                          className={`text-[11px] leading-relaxed ${
-                            t.completed ? "text-slate-500" : "text-slate-300"
-                          }`}
-                        >
+                        <p className={`text-[11px] leading-relaxed ${t.completed ? "text-slate-500" : "text-slate-300"}`}>
                           {t.task}
                         </p>
                         <div className="flex flex-wrap gap-3 text-[10px] text-slate-400 pt-1">
-                          <span>
-                            ⏱ Time: <strong className="text-slate-300">{t.timeEst}</strong>
-                          </span>
-                          <span>
-                            💰 Budget: <strong className="text-slate-300">{t.budgetEst}</strong>
-                          </span>
+                          <span>⏱ Time: <strong className="text-slate-300">{t.timeEst}</strong></span>
+                          <span>💰 Budget: <strong className="text-slate-300">{t.budgetEst}</strong></span>
                         </div>
                       </div>
                     </div>
-
                     <button
                       type="button"
                       onClick={() => handleConsultDailyTaskAI(t)}
@@ -4037,6 +4135,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               </div>
             </div>
 
+            {/* Task Field SOP Modal */}
             {taskAdviceModal && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
                 <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-xl w-full max-h-[85vh] overflow-y-auto space-y-4 relative text-xs shadow-2xl">
@@ -4047,27 +4146,22 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   >
                     <X className="w-5 h-5" />
                   </button>
-
                   <div className="border-b border-slate-800 pb-2">
                     <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded">
                       Field Execution SOP
                     </span>
                     <h3 className="font-extrabold text-slate-100 text-base mt-1">{taskAdviceModal.title}</h3>
                   </div>
-
                   <div className="whitespace-pre-line text-slate-300 leading-relaxed font-sans">
                     {isLoadingTaskAdvice ? (
                       <div className="py-12 text-center space-y-2">
                         <RefreshCw className="w-6 h-6 animate-spin text-amber-400 mx-auto" />
-                        <p className="text-slate-400">
-                          Formulating step-by-step field checklists and negotiation scripts...
-                        </p>
+                        <p className="text-slate-400">Formulating step-by-step field checklists and negotiation scripts...</p>
                       </div>
                     ) : (
                       taskAdviceModal.sopText
                     )}
                   </div>
-
                   <div className="pt-3 border-t border-slate-800 flex justify-end">
                     <button
                       type="button"
@@ -4157,9 +4251,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
-                <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">
-                  Break-Even Volume Calculator
-                </h3>
+                <h3 className="font-bold text-slate-100 text-sm border-b border-slate-800 pb-3">Break-Even Volume Calculator</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-slate-400 block mb-1">Monthly Overhead (Rent+Salaries ₹)</label>
@@ -4195,8 +4287,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     Contribution/Unit: <strong className="text-slate-200">₹{unitContribution}</strong>
                   </div>
                   <div>
-                    Volume Needed:{" "}
-                    <strong className="text-emerald-400 font-bold">{breakEvenUnitsNeeded} Units/mo</strong>
+                    Volume Needed: <strong className="text-emerald-400 font-bold">{breakEvenUnitsNeeded} Units/mo</strong>
                   </div>
                 </div>
               </div>
@@ -4219,10 +4310,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     <span>{isAuditingLedger ? "Auditing..." : "Run AI Cashflow Audit"}</span>
                   </button>
                   <span className="text-xs bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 text-slate-200">
-                    Net:{" "}
-                    <strong className={netLedgerBalance >= 0 ? "text-emerald-400" : "text-rose-400"}>
-                      ₹{netLedgerBalance.toLocaleString("en-IN")}
-                    </strong>
+                    Net: <strong className={netLedgerBalance >= 0 ? "text-emerald-400" : "text-rose-400"}>₹{netLedgerBalance.toLocaleString("en-IN")}</strong>
                   </span>
                 </div>
               </div>
@@ -4361,8 +4449,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             <span className="text-sm">Ask BizMentor AI 🇮🇳</span>
           </button>
         ) : (
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[480px]">
-            <div className="p-3 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl w-80 sm:w-96 flex flex-col h-[500px]">
+            <div className="p-3.5 bg-slate-950 border-b border-slate-800 rounded-t-3xl flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
                 <span className="font-bold text-xs text-slate-200">BizMentor AI (24/7 SME Advisor)</span>
@@ -4376,14 +4464,17 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               </button>
             </div>
 
-            <div className="flex-1 p-3 overflow-y-auto space-y-3 text-xs">
+            <div className="flex-1 p-3.5 overflow-y-auto space-y-3 text-xs">
               {chatMessages.map((msg, index) => (
-                <div key={index} className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  key={index}
+                  className={`flex ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
+                >
                   <div
-                    className={`max-w-[85%] rounded-2xl px-3 py-2 ${
+                    className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 whitespace-pre-wrap leading-relaxed ${
                       msg.sender === "user"
-                        ? "bg-amber-500 text-slate-950 font-medium"
-                        : "bg-slate-800 text-slate-200"
+                        ? "bg-amber-500 text-slate-950 font-semibold"
+                        : "bg-slate-800 text-slate-200 border border-slate-700/60"
                     }`}
                   >
                     {msg.text}
@@ -4391,21 +4482,22 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 </div>
               ))}
               {isChatLoading && (
-                <div className="text-slate-500 text-[11px] flex items-center space-x-1.5">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  <span>BizMentor is formulating advice...</span>
+                <div className="text-slate-400 text-[11px] flex items-center space-x-1.5 py-1">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span>BizMentor is formulating advice for your venture...</span>
                 </div>
               )}
+              <div ref={chatBottomRef} />
             </div>
 
-            <div className="p-2 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-1.5">
+            <div className="p-2.5 border-t border-slate-800 bg-slate-950 rounded-b-3xl flex items-center space-x-2">
               <input
                 type="text"
-                placeholder="Ask about GST, credit, wholesale..."
+                placeholder="Ask about wholesale, GST, margins, khata..."
                 value={inputChat}
                 onChange={(e) => setInputChat(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none"
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-amber-500"
               />
               <button
                 type="button"
@@ -4430,17 +4522,14 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             >
               <X className="w-5 h-5" />
             </button>
-
             <div className="text-center space-y-2">
               <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-3 py-1 rounded-full font-bold">
                 BizNavigator Pro Upgrade
               </span>
               <h3 className="text-2xl font-black text-slate-100">
-                Free limit reached ({evaluationsCount}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited
-                evaluations.
+                Free limit reached ({evaluationsCount}/{FREE_USAGE_LIMIT}). Upgrade to Pro for unlimited evaluations.
               </h3>
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="bg-slate-950 border border-slate-800 p-4 rounded-2xl text-center space-y-3 flex flex-col justify-between">
                 <div>
@@ -4534,7 +4623,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             >
               <X className="w-5 h-5" />
             </button>
-
             <div className="text-center space-y-1">
               <ShieldCheck className="w-10 h-10 text-amber-400 mx-auto" />
               <h3 className="text-lg font-bold text-slate-100">Payment Verification</h3>
@@ -4611,9 +4699,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 </h2>
                 <p className="text-slate-400">Last updated: October 2026</p>
                 <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
-                  <strong>⚠️ Statutory Disclaimer:</strong> BizNavigator provides AI-driven business
-                  feasibility calculations for educational and planning purposes only. We do not provide
-                  chartered accountancy, formal audit guarantees, or statutory legal council.
+                  <strong>⚠️ Statutory Disclaimer:</strong> BizNavigator provides AI-driven business feasibility calculations for educational and planning purposes only. We do not provide chartered accountancy, formal audit guarantees, or statutory legal council.
                 </div>
               </div>
             )}
@@ -4625,8 +4711,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   Privacy Policy (DPDP Act Compliant)
                 </h2>
                 <p>
-                  We collect and secure basic credentials strictly for account authentication and transactional
-                  alerts. No credentials or business ideas are monetized or sold to third parties.
+                  We collect and secure basic credentials strictly for account authentication and transactional alerts. No credentials or business ideas are monetized or sold to third parties.
                 </p>
               </div>
             )}
@@ -4638,9 +4723,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   Refund & Cancellation Policy
                 </h2>
                 <p>
-                  Digital subscriptions provision AI compute instances on demand and are non-refundable upon
-                  activation. In cases of duplicate charges, email admin@biznavigator.in with Razorpay Payment
-                  IDs within 48 hours for full refund processing.
+                  Digital subscriptions provision AI compute instances on demand and are non-refundable upon activation. In cases of duplicate charges, email admin@biznavigator.in with Razorpay Payment IDs within 48 hours for full refund processing.
                 </p>
               </div>
             )}
@@ -4651,12 +4734,8 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   <Mail className="w-5 h-5 text-amber-400" />
                   Contact & Support
                 </h2>
-                <p>
-                  Support Email: <strong>admin@biznavigator.in</strong>
-                </p>
-                <p>
-                  Operational Headquarters: Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037
-                </p>
+                <p>Support Email: <strong>admin@biznavigator.in</strong></p>
+                <p>Operational Headquarters: Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037</p>
               </div>
             )}
 
