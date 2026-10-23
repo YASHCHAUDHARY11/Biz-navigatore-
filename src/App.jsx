@@ -755,13 +755,30 @@ export default function BizNavigatorApp() {
     }
   };
 
-  const handleLogout = () => {
-    if (window.confirm("Are you sure you want to log out of BizNavigator?")) {
-      setCurrentUser(null);
+    const handleLogout = () => {
+    // 1. Storage se session aur related keys saaf karein
+    try {
       localStorage.removeItem(`${STORAGE_PREFIX}user`);
-      setActiveTab("idea-finder");
-    }
+      localStorage.removeItem(`${STORAGE_PREFIX}selected_venture`);
+      localStorage.removeItem(`${STORAGE_PREFIX}all_txns`);
+      localStorage.removeItem(`${STORAGE_PREFIX}registered_users`);
+    } catch (e) {}
+
+    // 2. React State reset karein
+    setCurrentUser(null);
+    setSelectedVenture(null);
+    setSubmittedTxns([]);
+    setRegisteredUsersList([]);
+    setAuthMode("login");
+    setActiveTab("idea-finder");
+    setShowAdminConsoleModal(false);
+    setShowPaywallModal(false);
+    setShowVerificationModal(false);
+
+    // 3. Clean redirect/reload taaki background hooks band ho jayein
+    window.location.reload();
   };
+
 
   // GEMINI AI CALLER (SUPPORTS BOTH PLAIN TEXT & JSON)
   const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
