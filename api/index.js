@@ -514,7 +514,7 @@ app.post("/api/ai/generate", async (req, res) => {
       return res.status(500).json({ error: "GEMINI_API_KEY is not set in Vercel environment variables." });
     }
 
-    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"];
+    const models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"];
 
     const generationConfig = {
       temperature: 0.7
@@ -523,6 +523,8 @@ app.post("/api/ai/generate", async (req, res) => {
       generationConfig.responseMimeType = "application/json";
     }
 
+    let lastErrorMsg = "";
+
     for (const model of models) {
       try {
         const response = await fetch(
@@ -530,11 +532,18 @@ app.post("/api/ai/generate", async (req, res) => {
           {
             method: "POST",
             headers: {
-              "Content-Type": "application/json",
-              "x-goog-api-key": apiKey
+              "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              contents: [{ parts: [{ text: `${systemInstruction || ""}\n\nTask:\n${prompt}` }] }],
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `${systemInstruction ? systemInstruction + "\n\n" : ""}Task:\n${prompt}`
+                    }
+                  ]
+                }
+              ],
               generationConfig
             })
           }
@@ -546,14 +555,16 @@ app.post("/api/ai/generate", async (req, res) => {
           return res.json({ text: data.candidates[0].content.parts[0].text });
         }
         if (data.error) {
-          console.warn(`Model ${model} error from Google:`, data.error.message);
+          lastErrorMsg = data.error.message;
+          console.warn(`Model ${model} returned error:`, data.error.message);
         }
       } catch (modelErr) {
+        lastErrorMsg = modelErr.message;
         console.warn(`Fetch error for ${model}:`, modelErr.message);
       }
     }
 
-    return res.status(502).json({ error: "Gemini models were temporarily unavailable. Please retry." });
+    return res.status(502).json({ error: `Gemini models temporarily unavailable: ${lastErrorMsg}` });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
