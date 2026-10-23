@@ -1848,91 +1848,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
     return true;
   });
 
-  // REUSABLE LEGAL MODAL (AVAILABLE ON BOTH LOGIN WALL & AUTHENTICATED APP)
-  const renderLegalModal = () => {
-    if (!legalModalType) return null;
-    return (
-      <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
-          <button
-            type="button"
-            onClick={() => setLegalModalType(null)}
-            className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {legalModalType === "terms" && (
-            <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-amber-400" />
-                Terms of Service & AI Disclaimer
-              </h2>
-              <p className="text-slate-400">Last updated: October 2026</p>
-              <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
-                <strong>⚠️ Statutory Disclaimer:</strong> BizNavigator provides AI-driven business
-                feasibility calculations for educational and planning purposes only. We do not provide
-                chartered accountancy, formal audit guarantees, or statutory legal council.
-              </div>
-            </div>
-          )}
-
-          {legalModalType === "privacy" && (
-            <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                Privacy Policy (DPDP Act Compliant)
-              </h2>
-              <p>
-                We collect and secure basic credentials strictly for account authentication and transactional
-                alerts. No credentials or business ideas are monetized or sold to third parties.
-              </p>
-            </div>
-          )}
-
-          {legalModalType === "refund" && (
-            <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <IndianRupee className="w-5 h-5 text-sky-400" />
-                Refund & Cancellation Policy
-              </h2>
-              <p>
-                Digital subscriptions provision AI compute instances on demand and are non-refundable upon
-                activation. In cases of duplicate charges, email admin@biznavigator.in with Razorpay Payment
-                IDs within 48 hours for full refund processing.
-              </p>
-            </div>
-          )}
-
-          {legalModalType === "contact" && (
-            <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
-              <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
-                <Mail className="w-5 h-5 text-amber-400" />
-                Contact & Support
-              </h2>
-              <p>
-                Support Email: <strong>admin@biznavigator.in</strong>
-              </p>
-              <p>
-                Operational Headquarters: Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037
-              </p>
-            </div>
-          )}
-
-          <div className="pt-4 border-t border-slate-800 flex justify-end">
-            <button
-              type="button"
-              onClick={() => setLegalModalType(null)}
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   // ==========================================
   // AUTH WALL VIEW
   // ==========================================
@@ -1955,35 +1870,32 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5">
             <div className="grid grid-cols-4 border-b border-slate-800 pb-3 gap-1">
               <button
-                type="button"
                 onClick={() => {
                   setAuthMode("login");
                   setSignupStep(1);
                   setAuthError("");
                   setAuthSuccessNotice("");
                 }}
-                className={`text-center py-2 text-[11px] font-bold transition border-b-2 cursor-pointer ${
+                className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
                   authMode === "login" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"
                 }`}
               >
                 Sign In
               </button>
               <button
-                type="button"
                 onClick={() => {
                   setAuthMode("signup");
                   setSignupStep(1);
                   setAuthError("");
                   setAuthSuccessNotice("");
                 }}
-                className={`text-center py-2 text-[11px] font-bold transition border-b-2 cursor-pointer ${
+                className={`text-center py-2 text-[11px] font-bold transition border-b-2 ${
                   authMode === "signup" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"
                 }`}
               >
                 Register
               </button>
               <button
-                type="button"
                 onClick={() => {
                   setAuthMode("forgot");
                   setOtpStep(1);
@@ -1993,21 +1905,20 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   setResetNewPassword("");
                   setResetConfirmPassword("");
                 }}
-                className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 cursor-pointer ${
+                className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
                   authMode === "forgot" ? "border-amber-500 text-amber-400" : "border-transparent text-slate-400"
                 }`}
               >
                 <span>Forgot?</span>
               </button>
               <button
-                type="button"
                 onClick={() => {
                   setAuthMode("admin");
                   setSignupStep(1);
                   setAuthError("");
                   setAuthSuccessNotice("");
                 }}
-                className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 cursor-pointer ${
+                className={`text-center py-2 text-[11px] font-bold transition border-b-2 flex items-center justify-center space-x-1 ${
                   authMode === "admin" ? "border-rose-500 text-rose-400" : "border-transparent text-slate-400"
                 }`}
               >
@@ -2282,43 +2193,23 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
           </div>
         </div>
 
-        {/* FOOTER */}
         <footer className="w-full max-w-7xl mx-auto border-t border-slate-800/80 pt-4 pb-2 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>BizNavigator © 2026. Made for Indian SMEs.</div>
           <div className="flex flex-wrap gap-4 text-slate-400 font-medium">
-            <button
-              type="button"
-              onClick={() => setLegalModalType("terms")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">
               Terms
             </button>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("privacy")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">
               Privacy
             </button>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("refund")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">
               Refund
             </button>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("contact")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">
               Contact
             </button>
           </div>
         </footer>
-
-        {/* MODAL MOUNTED ON LOGIN PAGE */}
-        {renderLegalModal()}
       </div>
     );
   }
@@ -4439,35 +4330,19 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             <p className="text-[11px] text-slate-500">India's SME Strategic Roadmap & Launch Platform</p>
           </div>
           <div className="flex flex-wrap justify-center gap-4 text-xs font-medium">
-            <button
-              type="button"
-              onClick={() => setLegalModalType("terms")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("terms")} className="hover:text-amber-400 cursor-pointer">
               Terms of Service
             </button>
             <span>•</span>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("privacy")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("privacy")} className="hover:text-amber-400 cursor-pointer">
               Privacy Policy
             </button>
             <span>•</span>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("refund")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("refund")} className="hover:text-amber-400 cursor-pointer">
               Refund Policy
             </button>
             <span>•</span>
-            <button
-              type="button"
-              onClick={() => setLegalModalType("contact")}
-              className="hover:text-amber-400 cursor-pointer"
-            >
+            <button onClick={() => setLegalModalType("contact")} className="hover:text-amber-400 cursor-pointer">
               Contact & Support
             </button>
           </div>
@@ -4716,8 +4591,87 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
         </div>
       )}
 
-      {/* LEGAL MODAL MOUNTED ON AUTHENTICATED APP */}
-      {renderLegalModal()}
+      {/* LEGAL POLICIES MODAL */}
+      {legalModalType && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[120] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 max-w-2xl w-full max-h-[85vh] flex flex-col relative shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setLegalModalType(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-200 p-1 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {legalModalType === "terms" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-amber-400" />
+                  Terms of Service & AI Disclaimer
+                </h2>
+                <p className="text-slate-400">Last updated: October 2026</p>
+                <div className="bg-amber-950/30 border border-amber-500/30 p-3 rounded-xl text-amber-200">
+                  <strong>⚠️ Statutory Disclaimer:</strong> BizNavigator provides AI-driven business
+                  feasibility calculations for educational and planning purposes only. We do not provide
+                  chartered accountancy, formal audit guarantees, or statutory legal council.
+                </div>
+              </div>
+            )}
+
+            {legalModalType === "privacy" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                  Privacy Policy (DPDP Act Compliant)
+                </h2>
+                <p>
+                  We collect and secure basic credentials strictly for account authentication and transactional
+                  alerts. No credentials or business ideas are monetized or sold to third parties.
+                </p>
+              </div>
+            )}
+
+            {legalModalType === "refund" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <IndianRupee className="w-5 h-5 text-sky-400" />
+                  Refund & Cancellation Policy
+                </h2>
+                <p>
+                  Digital subscriptions provision AI compute instances on demand and are non-refundable upon
+                  activation. In cases of duplicate charges, email admin@biznavigator.in with Razorpay Payment
+                  IDs within 48 hours for full refund processing.
+                </p>
+              </div>
+            )}
+
+            {legalModalType === "contact" && (
+              <div className="space-y-4 overflow-y-auto pr-2 text-xs text-slate-300">
+                <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+                  <Mail className="w-5 h-5 text-amber-400" />
+                  Contact & Support
+                </h2>
+                <p>
+                  Support Email: <strong>admin@biznavigator.in</strong>
+                </p>
+                <p>
+                  Operational Headquarters: Rangpuri Pahari, Vasant Kunj Road, South West Delhi, Delhi - 110037
+                </p>
+              </div>
+            )}
+
+            <div className="pt-4 border-t border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setLegalModalType(null)}
+                className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
