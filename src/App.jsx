@@ -311,20 +311,23 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
+  // Sync DB records directly from MongoDB (Safe guarded against race condition on logout)
   const syncDatabaseData = useCallback(async () => {
-    if (!currentUser) return;
+    const localUser = safeGetStorage(`${STORAGE_PREFIX}user`, null);
+    if (!localUser || !localUser.emailOrPhone) return;
+
     setIsAdminDataLoading(true);
     setAdminDbError("");
     try {
-      const profileRes = await fetch(`${API_BASE_URL}/users/profile?email=${encodeURIComponent(currentUser.emailOrPhone)}`);
+      const profileRes = await fetch(`${API_BASE_URL}/users/profile?email=${encodeURIComponent(localUser.emailOrPhone)}`);
       if (profileRes.ok) {
         const freshUser = await profileRes.json();
-        if (freshUser && freshUser.emailOrPhone) {
-          setCurrentUser((prev) => ({
+        if (freshUser && freshUser.emailOrPhone && localStorage.getItem(`${STORAGE_PREFIX}user`)) {
+          setCurrentUser((prev) => (prev ? {
             ...prev,
             ...freshUser,
             evaluationsCount: Number(freshUser.evaluationsCount) || 0
-          }));
+          } : null));
         }
       }
 
@@ -336,7 +339,7 @@ export default function BizNavigatorApp() {
         }
       }
 
-      if (isAdminUser) {
+      if (localUser.role?.toLowerCase() === "admin" || localUser.emailOrPhone?.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         const usersRes = await fetch(`${API_BASE_URL}/admin/users`);
         if (usersRes.ok) {
           const users = await usersRes.json();
@@ -350,13 +353,13 @@ export default function BizNavigatorApp() {
     } finally {
       setIsAdminDataLoading(false);
     }
-  }, [currentUser, isAdminUser]);
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
       syncDatabaseData();
     }
-  }, [currentUser, syncDatabaseData]);
+  }, [currentUser?.emailOrPhone, syncDatabaseData]);
 
   useEffect(() => {
     if (otpSecondsLeft <= 0) return;
@@ -755,16 +758,13 @@ export default function BizNavigatorApp() {
     }
   };
 
-    const handleLogout = () => {
-    // 1. Storage se session aur related keys saaf karein
+  // ROBUST LOGOUT HANDLER (WIPES CLIENT STATE & REDIRECTS TO CLEAN ROOT)
+  const handleLogout = () => {
     try {
-      localStorage.removeItem(`${STORAGE_PREFIX}user`);
-      localStorage.removeItem(`${STORAGE_PREFIX}selected_venture`);
-      localStorage.removeItem(`${STORAGE_PREFIX}all_txns`);
-      localStorage.removeItem(`${STORAGE_PREFIX}registered_users`);
+      localStorage.clear();
+      sessionStorage.clear();
     } catch (e) {}
 
-    // 2. React State reset karein
     setCurrentUser(null);
     setSelectedVenture(null);
     setSubmittedTxns([]);
@@ -775,10 +775,8 @@ export default function BizNavigatorApp() {
     setShowPaywallModal(false);
     setShowVerificationModal(false);
 
-    // 3. Clean redirect/reload taaki background hooks band ho jayein
-    window.location.reload();
+    window.location.href = window.location.origin;
   };
-
 
   // GEMINI AI CALLER (SUPPORTS BOTH PLAIN TEXT & JSON)
   const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
@@ -1938,8 +1936,17 @@ Reply warmly, naturally, and helpfully as BizMentor AI. If the user greeted with
               }`}>
                 {currentUser.name?.charAt(0).toUpperCase()}
               </div>
-              <button onClick={handleLogout} title="Logout" className="text-slate-400 hover:text-rose-400 p-1 ml-1 cursor-pointer">
-                <LogOut className="w-3.5 h-3.5" />
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleLogout();
+                }}
+                title="Logout"
+                className="text-slate-400 hover:text-rose-400 p-1.5 ml-1 cursor-pointer transition rounded-lg hover:bg-slate-700/50"
+              >
+                <LogOut className="w-4 h-4" />
               </button>
             </div>
           </div>
@@ -2856,14 +2863,14 @@ Reply warmly, naturally, and helpfully as BizMentor AI. If the user greeted with
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
                           <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
-                            <Clock className="w-3 h-3 text-sky-400" />
+                            <Clock className="w-3.5 h-3.5 text-sky-400" />
                             <span>Peak Demand Hours</span>
                           </span>
                           <p className="font-semibold text-slate-200">{loc.demandTriggers}</p>
                         </div>
                         <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
                           <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
-                            <MapPin className="w-3 h-3 text-emerald-400" />
+                            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
                             <span>Ideal Placement Spot</span>
                           </span>
                           <p className="font-semibold text-slate-200">{loc.idealPlacementSpot}</p>
