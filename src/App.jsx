@@ -205,6 +205,16 @@ function extractJsonFromText(rawText) {
       return JSON.parse(candidate);
     } catch (e) {}
   }
+
+  const firstBracket = rawText.indexOf("[");
+  const lastBracket = rawText.lastIndexOf("]");
+  if (firstBracket !== -1 && lastBracket !== -1 && lastBracket > firstBracket) {
+    const candidateArr = rawText.substring(firstBracket, lastBracket + 1);
+    try {
+      return JSON.parse(candidateArr);
+    } catch (e) {}
+  }
+
   return null;
 }
 
@@ -311,7 +321,6 @@ export default function BizNavigatorApp() {
     }
   }, [selectedVenture]);
 
-  // Sync DB records directly from MongoDB (Safe guarded against race condition on logout)
   const syncDatabaseData = useCallback(async () => {
     const localUser = safeGetStorage(`${STORAGE_PREFIX}user`, null);
     if (!localUser || !localUser.emailOrPhone) return;
@@ -373,7 +382,6 @@ export default function BizNavigatorApp() {
     return () => clearInterval(interval);
   }, [signupOtpSecondsLeft]);
 
-  // UNIFIED EVALUATION LIMIT CHECK & USAGE RECORDING
   const canPerformEvaluation = () => {
     if (isAdminUser || isUserPro) return true;
     if (remainingEvaluations <= 0) {
@@ -404,7 +412,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Direct MongoDB Admin CRUD
   const handleAdminApproveTxn = async (txn) => {
     const txnId = txn._id || txn.id;
     setIsExecutingAdminAction(true);
@@ -547,7 +554,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // Auth Handlers
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     setAuthError("");
@@ -758,7 +764,6 @@ export default function BizNavigatorApp() {
     }
   };
 
-  // ROBUST LOGOUT HANDLER (WIPES CLIENT STATE & REDIRECTS TO CLEAN ROOT)
   const handleLogout = () => {
     try {
       localStorage.clear();
@@ -778,7 +783,7 @@ export default function BizNavigatorApp() {
     window.location.href = window.location.origin;
   };
 
-  // GEMINI AI CALLER (SUPPORTS BOTH PLAIN TEXT & JSON)
+  // ROBUST GEMINI CALLER (PROPERLY SUPPORTS JSON & PLAIN-TEXT DIALOGUE)
   const callGeminiAI = async (prompt, systemInstruction = "", isJson = true) => {
     if (!currentUser) throw new Error("AUTH_REQUIRED");
     setLastAiError("");
@@ -791,7 +796,7 @@ export default function BizNavigatorApp() {
           prompt,
           systemInstruction,
           userEmail: currentUser.emailOrPhone,
-          isJson
+          isJson: Boolean(isJson)
         })
       });
 
@@ -800,11 +805,13 @@ export default function BizNavigatorApp() {
         if (serverData.text) {
           return serverData.text;
         }
-        if (serverData.error) {
-          setLastAiError(serverData.error);
-        }
+      } else {
+        const errData = await serverRes.json().catch(() => ({}));
+        console.warn("Backend AI route error:", errData.error || serverRes.statusText);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.warn("Backend fetch failed, trying direct key fallback:", err);
+    }
 
     const envKey = VERCEL_ENV_GEMINI_KEY.trim();
     if (envKey) {
@@ -818,7 +825,7 @@ export default function BizNavigatorApp() {
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${envKey}`,
             {
               method: "POST",
-              headers: { "Content-Type": "application/json", "x-goog-api-key": envKey },
+              headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: `${systemInstruction}\n\nTask:\n${prompt}` }] }],
                 generationConfig
@@ -832,7 +839,9 @@ export default function BizNavigatorApp() {
           if (textResponse) {
             return textResponse;
           }
-        } catch (e) {}
+        } catch (e) {
+          console.warn(`Direct model ${model} failed:`, e);
+        }
       }
     }
     return null;
@@ -1087,7 +1096,7 @@ Return ONLY valid JSON matching this exact structure:
     }
   };
 
-  // Tab 4: Dynamic 10-Day Launch Sprint
+  // Tab 4: Dynamic 10-Day Launch Sprint (Flexible Extraction)
   const [dailySprintTasks, setDailySprintTasks] = useState(() => safeGetStorage(`${STORAGE_PREFIX}daily_sprint_10days`, INITIAL_10_DAY_SPRINT));
   const [sprintFilter, setSprintFilter] = useState("all");
   const [taskAdviceModal, setTaskAdviceModal] = useState(null);
@@ -1098,40 +1107,62 @@ Return ONLY valid JSON matching this exact structure:
     if (!canPerformEvaluation()) return;
     setIsGeneratingSprint(true);
     const targetCityClean = city ? city.split("(")[0].replace(/,/g, "").trim() : "India";
-    const prompt = `Create an exhaustive, hyper-practical 10-Day Step-by-Step launch sprint for this business:
-Business: "${ventureTitle}"
-City / Location: "${targetCityClean}", India.
+    const ventureClean = ventureTitle || selectedVenture?.title || "Indian SME Retail / Service";
 
-Tailor each day specifically to this exact business model and city context (e.g. mention actual local wholesale markets, specific permits like FSSAI if food, Indiamart/APMC raw materials, equipment test runs, and marketing scripts).
+    const prompt = `Act as an Indian Startup & SME Field Operations Manager.
+Create an exhaustive 10-day step-by-step launch roadmap for:
+Venture: "${ventureClean}"
+City: "${targetCityClean}", India.
 
-Return ONLY valid JSON matching this schema:
+Tailor each day specifically to this exact business (mention actual local wholesale markets, specific permits like FSSAI/Udyam, equipment dry-run, and Day-1 pricing).
+
+Return ONLY valid JSON matching this exact structure:
 {
   "sprint": [
     {
       "id": "day_1",
       "dayNumber": 1,
-      "dayTitle": "Day 1: Ground Demand Validation & Customer Survey",
+      "dayTitle": "Day 1: Ground Demand Validation in ${targetCityClean}",
       "phase": "Phase 1: Validation",
-      "task": "Hyper-specific action for ${ventureTitle} in ${targetCityClean}.",
+      "task": "Specific ground task for ${ventureClean}...",
       "timeEst": "3.5 hrs",
       "budgetEst": "₹300 - ₹500",
       "priority": "Critical",
       "completed": false
     }
   ]
-}
-Ensure exactly 10 items from Day 1 to Day 10 without skipping any day.`;
+}`;
 
     try {
-      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager for Indian SMEs. Return JSON only.", true);
+      const raw = await callGeminiAI(prompt, "You are BizNavigator's Lead Field Operations Manager. Return JSON only.", true);
       const parsed = extractJsonFromText(raw);
-      if (parsed?.sprint && Array.isArray(parsed.sprint) && parsed.sprint.length === 10) {
-        setDailySprintTasks(parsed.sprint);
-        localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(parsed.sprint));
+
+      let sprintArray = null;
+      if (Array.isArray(parsed)) {
+        sprintArray = parsed;
+      } else if (parsed && typeof parsed === "object") {
+        sprintArray = parsed.sprint || parsed.tasks || parsed.days || parsed.schedule;
+      }
+
+      if (Array.isArray(sprintArray) && sprintArray.length > 0) {
+        const formattedSprint = sprintArray.map((item, idx) => ({
+          id: item.id || `day_${idx + 1}`,
+          dayNumber: item.dayNumber || idx + 1,
+          dayTitle: item.dayTitle || `Day ${idx + 1}: Execution Step`,
+          phase: item.phase || (idx < 3 ? "Phase 1: Validation" : idx < 7 ? "Phase 2: Setup" : "Phase 3: Launch"),
+          task: item.task || "Execute planned operational task.",
+          timeEst: item.timeEst || "3.5 hrs",
+          budgetEst: item.budgetEst || "Variable",
+          priority: item.priority || "High",
+          completed: false
+        }));
+
+        setDailySprintTasks(formattedSprint);
+        localStorage.setItem(`${STORAGE_PREFIX}daily_sprint_10days`, JSON.stringify(formattedSprint));
         await recordEvaluationUsage();
       }
     } catch (err) {
-      console.warn("Failed to generate custom dynamic sprint:", err);
+      console.error("Failed to generate dynamic sprint:", err);
     } finally {
       setIsGeneratingSprint(false);
     }
@@ -1513,30 +1544,39 @@ Provide:
     setIsChatLoading(true);
 
     try {
-      const prompt = `User said: "${userText}".
-Venture context: ${selectedVenture ? selectedVenture.title : "Indian SME"}.
-Reply warmly, naturally, and helpfully as BizMentor AI. If the user greeted with 'Hi', 'Hello', 'Namaste' or similar, respond with a friendly greeting in Hinglish/English and ask what specific challenge or business question they are working on today. DO NOT output the default credit/udhaar ledger paragraph unless the user specifically asks about credit, udhaar, or payments.`;
+      const ventureContext = selectedVenture ? selectedVenture.title : "Indian SME Retail / Service";
+      const prompt = `You are BizMentor AI, an expert, street-smart mentor for Indian MSMEs and startups.
+User's query: "${userText}"
+Active Business Context: ${ventureContext}
+
+Provide a direct, practical, culturally accurate response in easy Hinglish/English.
+If it is a simple greeting like 'Hi', 'Hello', greet them warmly and ask what specific challenge (e.g. suppliers, margins, licenses, daily operations) they want to solve for their venture today.
+Do NOT give a generic pre-written paragraph. Address their exact query.`;
 
       const res = await callGeminiAI(
         prompt,
-        "You are BizMentor AI, an expert Indian small business advisor and friendly peer.",
+        "You are BizMentor AI, an authentic Indian small business advisor and helpful collaborator. Provide clear, direct, and conversational responses without boilerplate text.",
         false
       );
 
-      setChatMessages((prev) => [
-        ...prev,
-        {
-          sender: "mentor",
-          text: res || "Namaste! Main aapke business me kya madad kar sakta hoon? Kripya apna sawal puchein."
-        }
-      ]);
-      await recordEvaluationUsage();
+      if (res && res.trim().length > 0) {
+        setChatMessages((prev) => [
+          ...prev,
+          { sender: "mentor", text: res.trim() }
+        ]);
+        await recordEvaluationUsage();
+      } else {
+        setChatMessages((prev) => [
+          ...prev,
+          { sender: "mentor", text: "Thoda network latency issue hua hai. Kripya apna sawal dobara bhejein!" }
+        ]);
+      }
     } catch (err) {
       setChatMessages((prev) => [
         ...prev,
         {
           sender: "mentor",
-          text: "Namaste! Main aapke business me kya madad kar sakta hoon? Kripya apna sawal puchein."
+          text: "AI service connect karne me dikkat aayi. Kripya internet ya API check karein."
         }
       ]);
     } finally {
@@ -2863,14 +2903,14 @@ Reply warmly, naturally, and helpfully as BizMentor AI. If the user greeted with
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                         <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
                           <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
-                            <Clock className="w-3.5 h-3.5 text-sky-400" />
+                            <Clock className="w-3 h-3 text-sky-400" />
                             <span>Peak Demand Hours</span>
                           </span>
                           <p className="font-semibold text-slate-200">{loc.demandTriggers}</p>
                         </div>
                         <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800/80 space-y-1">
                           <span className="text-slate-400 text-[10px] uppercase font-bold flex items-center space-x-1">
-                            <MapPin className="w-3.5 h-3.5 text-emerald-400" />
+                            <MapPin className="w-3 h-3 text-emerald-400" />
                             <span>Ideal Placement Spot</span>
                           </span>
                           <p className="font-semibold text-slate-200">{loc.idealPlacementSpot}</p>
