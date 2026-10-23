@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from "react";
 import {
   Briefcase,
@@ -637,7 +638,7 @@ export default function BizNavigatorApp() {
 
     setIsSendingSignupOtp(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
+      let res = await fetch(`${API_BASE_URL}/auth/register-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1847,7 +1848,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
     return true;
   });
 
-  // Reusable Legal Modal JSX element
+  // REUSABLE LEGAL MODAL (AVAILABLE ON BOTH LOGIN WALL & AUTHENTICATED APP)
   const renderLegalModal = () => {
     if (!legalModalType) return null;
     return (
@@ -2281,6 +2282,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
           </div>
         </div>
 
+        {/* FOOTER */}
         <footer className="w-full max-w-7xl mx-auto border-t border-slate-800/80 pt-4 pb-2 text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div>BizNavigator © 2026. Made for Indian SMEs.</div>
           <div className="flex flex-wrap gap-4 text-slate-400 font-medium">
@@ -2315,7 +2317,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
           </div>
         </footer>
 
-        {/* LEGAL POLICIES MODAL FOR AUTH VIEW */}
+        {/* MODAL MOUNTED ON LOGIN PAGE */}
         {renderLegalModal()}
       </div>
     );
@@ -2374,7 +2376,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                   </span>
                 </span>
                 <button
-                  type="button"
                   onClick={() => setShowPaywallModal(true)}
                   className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer shadow"
                 >
@@ -2426,7 +2427,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
             return (
               <button
                 key={tab.id}
-                type="button"
                 onClick={() => {
                   setActiveTab(tab.id);
                   if (tab.id === "admin-works") {
@@ -2461,27 +2461,15 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
               <span className="text-slate-400 hidden sm:inline">({selectedVenture.category})</span>
             </div>
             <div className="flex items-center space-x-3 text-xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab("location-scout")}
-                className="text-amber-300 hover:underline cursor-pointer"
-              >
+              <button onClick={() => setActiveTab("location-scout")} className="text-amber-300 hover:underline cursor-pointer">
                 1. Scout 📍
               </button>
               <span>•</span>
-              <button
-                type="button"
-                onClick={() => setActiveTab("evaluator")}
-                className="text-amber-300 hover:underline cursor-pointer"
-              >
+              <button onClick={() => setActiveTab("evaluator")} className="text-amber-300 hover:underline cursor-pointer">
                 2. Feasibility & Risk 📊
               </button>
               <span>•</span>
-              <button
-                type="button"
-                onClick={() => setActiveTab("roadmap")}
-                className="text-amber-300 hover:underline cursor-pointer"
-              >
+              <button onClick={() => setActiveTab("roadmap")} className="text-amber-300 hover:underline cursor-pointer">
                 3. 10-Day Sprint 🗓️
               </button>
             </div>
@@ -2648,7 +2636,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                     {["all", "pending", "approved", "rejected"].map((st) => (
                       <button
                         key={st}
-                        type="button"
                         onClick={() => setTxnFilterStatus(st)}
                         className={`px-3 py-1.5 rounded-lg capitalize font-bold transition cursor-pointer ${
                           txnFilterStatus === st
@@ -3250,6 +3237,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
         {activeTab === "business-growth" && (
           <div className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Column: Form */}
               <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-4">
                 <div className="border-b border-slate-800 pb-3">
                   <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
@@ -3410,9 +3398,11 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 </form>
               </div>
 
+              {/* Right Column: AI Turnaround & Growth Blueprint */}
               <div className="lg:col-span-7 space-y-4">
                 {growthPlanResult ? (
                   <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl text-xs">
+                    {/* Top Diagnostic Banner */}
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
                       <div>
                         <span className="text-[10px] uppercase font-bold text-amber-400 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
@@ -3452,6 +3442,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </div>
                     </div>
 
+                    {/* Root Cause Diagnosis */}
                     <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-1.5">
                       <strong className="text-amber-400 flex items-center space-x-1.5 font-bold">
                         <Target className="w-4 h-4 text-rose-400" />
@@ -3462,6 +3453,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </p>
                     </div>
 
+                    {/* Revenue Leakages Caught */}
                     <div className="space-y-3">
                       <h4 className="font-bold text-rose-400 text-sm flex items-center space-x-2">
                         <AlertOctagon className="w-4 h-4" />
@@ -3488,6 +3480,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </div>
                     </div>
 
+                    {/* 7-Day Zero-Capex Quick Wins */}
                     <div className="bg-amber-950/20 border border-amber-500/30 p-4 rounded-2xl space-y-3">
                       <h4 className="font-bold text-amber-300 text-sm flex items-center space-x-2">
                         <Zap className="w-4 h-4 text-amber-400" />
@@ -3503,6 +3496,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </div>
                     </div>
 
+                    {/* 90-Day Step-by-Step Turnaround Plan */}
                     <div className="space-y-3">
                       <h4 className="font-bold text-sky-400 text-sm flex items-center space-x-2">
                         <Calendar className="w-4 h-4" />
@@ -3526,6 +3520,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </div>
                     </div>
 
+                    {/* Hyperlocal Marketing & Retention Strategy */}
                     {growthPlanResult.marketingPlaybook && (
                       <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
                         <h4 className="font-bold text-indigo-400 text-sm flex items-center space-x-2">
@@ -3561,6 +3556,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                       </div>
                     )}
 
+                    {/* Contingency Warning */}
                     {growthPlanResult.contingencyWarning && (
                       <div className="bg-rose-950/20 border border-rose-500/40 p-3.5 rounded-2xl text-[11px] text-rose-300 flex items-start space-x-2.5">
                         <ShieldAlert className="w-4 h-4 flex-shrink-0 text-rose-400 mt-0.5" />
@@ -4062,7 +4058,6 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
                 {["all", "incomplete", "completed"].map((filter) => (
                   <button
                     key={filter}
-                    type="button"
                     onClick={() => setSprintFilter(filter)}
                     className={`px-3 py-1.5 rounded-xl font-bold capitalize transition cursor-pointer ${
                       sprintFilter === filter
@@ -4721,7 +4716,7 @@ Do NOT give a generic pre-written paragraph. Address their exact query.`;
         </div>
       )}
 
-      {/* LEGAL POLICIES MODAL FOR MAIN APP */}
+      {/* LEGAL MODAL MOUNTED ON AUTHENTICATED APP */}
       {renderLegalModal()}
     </div>
   );
